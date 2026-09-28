@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="description" content="J.A.R.V.I.S. Iron Man HUD Voice Assistant Progressive Web App">
+  <meta name="theme-color" content="#00d2ff">
+  
+  <!-- PWA & Mobile Web App Meta -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="JARVIS">
+  
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+
+  <!-- Google Fonts: Orbitron & Rajdhani for Military Stark HUD Styling -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(reg => reg.update());
+      });
+    }
+  </script>
+
+  <link rel="stylesheet" href="./style.css?v=2026_stark_v8">
+  <title>J.A.R.V.I.S. // Stark Industries HUD</title>
+</head>
+<body>
+  <!-- Holographic HUD Scanlines Overlay -->
+  <div class="hud-scanlines"></div>
+  <div class="hud-vignette"></div>
+
+  <!-- Main Viewport Container -->
+  <div class="hud-container">
+    
+    <!-- HTTPS Insecure Context Warning Alert Banner (Mobile Chrome requires HTTPS for Speech Recognition) -->
+    <div class="https-alert-banner" id="https-alert-banner" style="display: none;">
+      <span class="https-alert-icon">⚠️</span>
+      <div class="https-alert-body">
+        <strong>ATTENZIONE:</strong> Chrome su mobile richiede una connessione protetta HTTPS per abilitare il microfono.
+      </div>
+      <a href="https://driven-robert-charitable-concentrations.trycloudflare.com" target="_blank" rel="noopener noreferrer" class="https-alert-btn">
+        APRI TUNNEL HTTPS ↗
+      </a>
+    </div>
+
+    <!-- TOP STATUS BAR / TELEMETRY -->
+    <header class="hud-header">
+      <div class="header-left">
+        <div class="brand-badge">
+          <span class="brand-code">STARK-IND // OS-7</span>
+          <h1 class="brand-title">J.A.R.V.I.S.</h1>
+        </div>
+        <div class="status-indicator" id="system-status-indicator">
+          <span class="status-dot"></span>
+          <span class="status-label" id="system-status-text"><span id="ai-status">ONLINE // STANDBY</span></span>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <div class="hud-clock" id="hud-clock">00:00:00</div>
+        <div class="hud-date" id="hud-date">STARK SYSTEMS NOMINAL</div>
+        <div class="telemetry-bar">
+          <span class="telemetry-item" id="telemetry-fps" title="Frame per secondo rendering"><span class="tel-dot green"></span>FPS: <strong id="fps-val">60</strong></span>
+          <span class="telemetry-item" id="telemetry-ping" title="Latenza server FastAPI"><span class="tel-dot cyan"></span>PING: <strong id="ping-val">-- ms</strong></span>
+          <button class="engine-mode-btn" id="engine-mode-btn" title="Clicca per alternare: Server Multi-Tool / nanoGPT Offline">
+            <span class="engine-pulse"></span>
+            <span id="engine-mode-label">FASTAPI CORE</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <!-- Screen Wake Lock Status Button -->
+        <button class="hud-btn wake-lock-btn" id="wake-lock-toggle" title="Attiva/Disattiva Screen Wake Lock">
+          <span class="hud-icon">⚡</span>
+          <span class="btn-text" id="wake-lock-label">WAKE LOCK: OFF</span>
+        </button>
+
+        <!-- Battery Status Widget -->
+        <div class="battery-widget" id="battery-widget" title="Stato Batteria Dispositivo">
+          <div class="battery-icon-container">
+            <span class="charging-symbol" id="battery-charging-symbol">⚡</span>
+            <div class="battery-shell">
+              <div class="battery-level-fill" id="battery-level-fill" style="width: 100%;"></div>
+            </div>
+          </div>
+          <span class="battery-pct" id="battery-pct-label">--%</span>
+        </div>
+
+        <!-- Settings Modal Trigger -->
+        <button class="hud-btn hud-btn-icon" id="open-settings-btn" title="Configurazione Jarvis & API">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN HUD GRID -->
+    <main class="hud-grid">
+      
+      <!-- LEFT PANEL: SYSTEM DIAGNOSTICS & QUICK COMMANDS -->
+      <section class="panel panel-left" aria-label="System Diagnostics">
+        <div class="panel-header">
+          <div class="corner-cut"></div>
+          <span class="panel-tag">// TELEMETRY</span>
+          <h2 class="panel-title">SYSTEM METRICS</h2>
+        </div>
+
+        <div class="panel-body custom-scrollbar">
+          <!-- Power / Battery Detailed Gauge -->
+          <div class="hud-card">
+            <div class="card-header">
+              <span class="card-subtitle">ARC CORE POWER GRID</span>
+              <span class="card-val" id="metric-battery-val">100%</span>
+            </div>
+            <div class="segmented-bar" id="battery-segments">
+              <div class="seg active"></div>
+              <div class="seg active"></div>
+              <div class="seg active"></div>
+              <div class="seg active"></div>
+              <div class="seg active"></div>
+              <div class="seg active"></div>
+              <div class="seg active"></div>
+              <div class="seg active"></div>
+              <div class="seg active"></div>
+              <div class="seg active"></div>
+            </div>
+            <div class="metric-footer">
+              <span id="metric-charging-state">ALIMENTAZIONE: NORMALE</span>
+              <span id="metric-battery-tech">Li-Ion // 4.2V</span>
+            </div>
+          </div>
+
+          <!-- Hardware Telemetry: Mobile Battery / Energy Buffer (ram-val & ram-bar) -->
+          <div class="hud-card">
+            <div class="card-header">
+              <span class="card-subtitle">DISPOSITIVO TELEMETRY BUFFER</span>
+              <span class="card-val" id="ram-val">100% (BATTERIA)</span>
+            </div>
+            <div class="progress-bar-container">
+              <div class="progress-bar-fill" id="ram-bar" style="width: 100%;"></div>
+            </div>
+          </div>
+
+          <!-- Neural & Speech Recognition Status -->
+          <div class="hud-card">
+            <div class="card-header">
+              <span class="card-subtitle">WAKE-WORD ENGINE</span>
+              <span class="card-val" id="metric-wakeword-val">ATTIVO</span>
+            </div>
+            <div class="diagnostic-row">
+              <span class="diag-label">TRIGGER WORD:</span>
+              <span class="diag-value">"JARVIS"</span>
+            </div>
+            <div class="diagnostic-row">
+              <span class="diag-label">AUDIO STREAM:</span>
+              <span class="diag-value" id="diag-mic-state">IN ATTESA</span>
+            </div>
+            <div class="diag-mic-actions">
+              <button class="hud-btn quick-mic-btn" id="btn-request-mic" type="button" title="Concedi permessi o avvia test del microfono">
+                <span class="btn-prefix">🎙️</span> ABILITA / TEST MICROFONO
+              </button>
+            </div>
+            <div class="diagnostic-row">
+              <span class="diag-label">TTS ENGINE:</span>
+              <span class="diag-value" id="diag-tts-state">EDGE NEURAL TTS</span>
+            </div>
+            <div class="diag-mic-actions" style="margin-top: 4px;">
+              <button class="hud-btn quick-mic-btn" id="btn-test-speaker" type="button" title="Testa la voce di Jarvis e sblocca l'audio del browser">
+                <span class="btn-prefix">🔊</span> TEST VOCE JARVIS
+              </button>
+            </div>
+            <div class="diagnostic-row">
+              <span class="diag-label">SCREEN WAKELOCK:</span>
+              <span class="diag-value" id="diag-wakelock-state">DISATTIVO</span>
+            </div>
+          </div>
+
+          <!-- Fast Action Shortcuts -->
+          <div class="hud-card">
+            <div class="card-header">
+              <span class="card-subtitle">PROTOCOLLI RAPIDI</span>
+            </div>
+            <div class="shortcuts-grid">
+              <button class="shortcut-btn" data-command="Che tempo fa a Roma?">
+                <span class="btn-prefix">☁️</span> Meteo Roma
+              </button>
+              <button class="shortcut-btn" data-command="Cerca sul web le ultime notizie scientifiche">
+                <span class="btn-prefix">🌐</span> Web Search
+              </button>
+              <button class="shortcut-btn" data-command="Calcola sqrt(144) * 8 + 25">
+                <span class="btn-prefix">🧮</span> Calcolatrice
+              </button>
+              <button class="shortcut-btn" data-command="Riproduci musica su Spotify">
+                <span class="btn-prefix">▶</span> Spotify
+              </button>
+              <button class="shortcut-btn" data-command="Invia un messaggio WhatsApp">
+                <span class="btn-prefix">💬</span> WhatsApp
+              </button>
+              <button class="shortcut-btn" data-command="Controlla lo stato della batteria">
+                <span class="btn-prefix">⚡</span> Batteria
+              </button>
+              <button class="shortcut-btn" data-command="Cerca ristoranti nelle vicinanze su Google Maps">
+                <span class="btn-prefix">📍</span> Mappe
+              </button>
+              <button class="shortcut-btn" data-command="Chiama il numero di assistenza">
+                <span class="btn-prefix">📞</span> Chiamata
+              </button>
+            </div>
+          </div>
+
+          <!-- Vision / Optical Scanner HUD Card -->
+          <div class="hud-card" id="vision-hud-card">
+            <div class="card-header">
+              <span class="card-subtitle">VISIONE OTTICA // SCANNER</span>
+            </div>
+            <div class="vision-feed-container" style="position: relative; margin-bottom: 8px;">
+              <video id="hud-webcam" autoplay playsinline muted style="display: none; width: 100%; border-radius: 4px; border: 1px solid var(--stark-cyan); max-height: 180px; object-fit: cover;"></video>
+              <canvas id="vision-canvas" style="display: none;"></canvas>
+            </div>
+            <div class="diag-mic-actions" style="display: flex; gap: 6px;">
+              <button class="hud-btn quick-mic-btn" id="btn-toggle-vision" type="button" style="flex: 1;">
+                <span class="btn-prefix">👁️</span> ATTIVA WEBCAM
+              </button>
+              <button class="hud-btn quick-mic-btn" id="btn-capture-vision" type="button" style="flex: 1; display: none; border-color: #00ffaa; color: #00ffaa;">
+                <span class="btn-prefix">📸</span> ANALIZZA
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CENTER STAGE: ARC REACTOR & SPEECH INTERFACE -->
+      <section class="center-stage" aria-label="Arc Reactor Core">
+        <div class="reactor-outer-wrapper" id="reactor-tilt-wrapper">
+          
+          <!-- Outer Sci-Fi Holographic Compass & Rings -->
+          <div class="hud-reticle-ring ring-outer"></div>
+          <div class="hud-reticle-ring ring-dashed"></div>
+          <div class="hud-reticle-ring ring-brackets"></div>
+
+          <!-- Central Canvas Arc Reactor -->
+          <canvas id="reactor-canvas" width="360" height="360" title="Tocca il Reattore Arc per parlare con Jarvis"></canvas>
+
+          <!-- Core Touch Pulsing Button Overlay -->
+          <button class="reactor-hitbox" id="reactor-touch-btn" aria-label="Tocca per attivare il microfono">
+            <span class="sr-only">Attiva o disattiva il microfono</span>
+          </button>
+        </div>
+
+        <!-- Subtitles / Live Transcript Display -->
+        <div class="hud-speech-console">
+          <!-- 16-Band Real-Time Audio Frequency Spectrum Waveform -->
+          <div class="waveform-container" id="waveform-container" title="Audio Spectrum Visualizer">
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+          </div>
+
+          <div class="status-banner" id="status-banner">
+            <span class="banner-pulse"></span>
+            <span class="banner-text" id="status-banner-text">TOCCA IL REATTORE O IL MICROFONO</span>
+          </div>
+
+          <!-- PROMINENT MASTER MICROPHONE BUTTON -->
+          <div class="hud-mic-control-bar">
+            <button class="hud-mic-master-btn pulse-attention" id="hud-mic-master-btn" type="button" aria-label="Attiva microfono o parla adesso">
+              <span class="mic-glow-halo"></span>
+              <span class="mic-glyph" id="mic-glyph">🎙️</span>
+              <span class="mic-master-text" id="mic-master-label">TOCCA PER ATTIVARE IL MICROFONO</span>
+              <span class="mic-status-badge" id="mic-status-badge">ATTIVA ORA</span>
+            </button>
+          </div>
+
+          <div class="transcript-box" id="transcript-box">
+            <span class="transcript-prefix">// TRASCRIZIONE: </span>
+            <span class="transcript-text" id="transcript-text">In attesa di comando vocale...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT PANEL: MISSION DIRECTIVES & CONVERSATION TERMINAL -->
+      <section class="panel panel-right" aria-label="Terminal Log">
+        <div class="panel-header">
+          <div class="corner-cut"></div>
+          <span class="panel-tag">// FEED ATTIVITÀ</span>
+          <h2 class="panel-title">MISSION LOG</h2>
+        </div>
+
+        <div class="panel-body custom-scrollbar" id="messages-container">
+          <!-- Boot welcome entry -->
+          <div class="log-entry jarvis-entry">
+            <div class="entry-meta">
+              <span class="entry-badge">J.A.R.V.I.S.</span>
+              <span class="entry-time" id="boot-time">READY</span>
+            </div>
+            <div class="entry-content">
+              Sistemi online e pronti, signore. Può pronunciare <strong>"Jarvis"</strong> per attivarmi in qualsiasi momento o toccare il Reattore Arc al centro dello schermo. Sono pronto ad eseguire i Suoi comandi.
+            </div>
+          </div>
+        </div>
+
+        <!-- Manual text prompt input bar (Silent Input Mode) -->
+        <form class="terminal-input-bar" id="manual-input-form">
+          <input type="text" id="manual-text-input" placeholder="Invia direttiva di testo a Jarvis..." autocomplete="off">
+          <button type="submit" class="hud-send-btn" id="manual-send-btn" aria-label="Invia comando">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </form>
+      </section>
+
+    </main>
+
+    <!-- FOOTER TELEMETRY STRIP -->
+    <footer class="hud-footer">
+      <div class="footer-block">
+        <span class="footer-label">SYS ARCH:</span>
+        <span class="footer-val">PWA STANDALONE // V1.0</span>
+      </div>
+      <div class="footer-block">
+        <span class="footer-label">SPEECH API:</span>
+        <span class="footer-val" id="footer-speech-api">CONTINUOUS READY</span>
+      </div>
+      <div class="footer-block">
+        <span class="footer-label">LLM BACKEND:</span>
+        <span class="footer-val" id="footer-llm-backend">FASTAPI (DDG SEARCH) // OPENAI // GROK</span>
+      </div>
+      <div class="footer-block">
+        <span class="footer-label">STARK PROTOCOL:</span>
+        <span class="footer-val active-val">ACTIVE</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- SETTINGS MODAL DIALOG -->
+  <div class="hud-modal-backdrop" id="settings-modal" hidden>
+    <div class="hud-modal">
+      <div class="modal-header">
+        <div class="corner-cut"></div>
+        <h3 class="modal-title">CONFIGURAZIONE J.A.R.V.I.S.</h3>
+        <button class="modal-close-btn" id="close-settings-btn" aria-label="Chiudi impostazioni">&times;</button>
+      </div>
+
+      <div class="modal-body custom-scrollbar">
+        <!-- AI Intelligence Engine -->
+        <div class="form-group">
+          <label for="setting-llm-provider">Intelligence Engine (LLM):</label>
+          <select id="setting-llm-provider" class="hud-select">
+            <option value="fastapi">Server Python FastAPI (Multi-Tool, Web Search & LLM)</option>
+            <option value="nanogpt">nanoGPT Neurale PyTorch (Offline Karpathy Core)</option>
+            <option value="local">Motore Locale Intent (Browser Offline / Zero API)</option>
+            <option value="openai">OpenAI Diretto (gpt-4o-mini / gpt-4o)</option>
+            <option value="xai">xAI Grok Diretto (grok-2 / grok-beta)</option>
+          </select>
+          <small class="form-hint">Con il Server Python hai la ricerca DuckDuckGo sul web in tempo reale, meteo e chiavi protette.</small>
+        </div>
+
+        <!-- FastAPI Backend URL Group -->
+        <div class="form-group" id="backend-url-group">
+          <label for="setting-backend-url">Indirizzo Server FastAPI (PC / LAN):</label>
+          <input type="text" id="setting-backend-url" class="hud-input" value="http://localhost:8000" placeholder="http://localhost:8000 o http://192.168.1.X:8000">
+          <small class="form-hint">Per usare dal telefono, inserisci l'indirizzo IP locale del tuo PC (es. http://192.168.1.50:8000).</small>
+        </div>
+
+        <!-- OpenAI / xAI API Key -->
+        <div class="form-group" id="api-key-group" style="display: none;">
+          <label for="setting-api-key">Chiave API LLM (OpenAI o xAI Grok per chiamata diretta frontend):</label>
+          <input type="password" id="setting-api-key" class="hud-input" placeholder="sk-...">
+          <small class="form-hint">Salvata in modo sicuro nel LocalStorage del browser.</small>
+        </div>
+
+        <!-- TTS Voice Engine -->
+        <div class="form-group">
+          <label for="setting-tts-engine">Motore Sintesi Vocale (TTS):</label>
+          <select id="setting-tts-engine" class="hud-select">
+            <option value="edge-server">⚡ Edge Neural TTS — Server (Qualità Massima, Consigliato)</option>
+            <option value="native">Web Speech Synthesis Nativo (Zero latenza)</option>
+            <option value="elevenlabs">ElevenLabs API (Voce Ultra-Realistica)</option>
+          </select>
+        </div>
+
+        <!-- Edge TTS Server Config -->
+        <div id="edge-tts-settings-group">
+          <div class="form-group">
+            <label for="setting-edge-tts-voice">Voce Neurale:</label>
+            <select id="setting-edge-tts-voice" class="hud-select">
+              <option value="">Diego (IT Maschile — Default JARVIS)</option>
+              <option value="it-male-multi">Giuseppe Multilingue (IT Maschile)</option>
+              <option value="it-female">Isabella (IT Femminile)</option>
+              <option value="en-male">Guy (EN Maschile)</option>
+              <option value="en-female">Jenny (EN Femminile)</option>
+            </select>
+          </div>
+          <div class="form-group" style="display: flex; gap: 12px;">
+            <div style="flex: 1;">
+              <label for="setting-edge-tts-rate">Velocità:</label>
+              <select id="setting-edge-tts-rate" class="hud-select">
+                <option value="-20%">Molto Lento</option>
+                <option value="-10%">Lento</option>
+                <option value="+0%" selected>Normale</option>
+                <option value="+10%">Veloce</option>
+                <option value="+20%">Molto Veloce</option>
+              </select>
+            </div>
+            <div style="flex: 1;">
+              <label for="setting-edge-tts-pitch">Tono:</label>
+              <select id="setting-edge-tts-pitch" class="hud-select">
+                <option value="-5Hz">Basso</option>
+                <option value="-2Hz">Lievemente Basso</option>
+                <option value="+0Hz" selected>Normale</option>
+                <option value="+3Hz">Alto</option>
+                <option value="+5Hz">Molto Alto</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- ElevenLabs API Config -->
+        <div id="elevenlabs-settings-group" style="display: none;">
+          <div class="form-group">
+            <label for="setting-elevenlabs-key">ElevenLabs API Key:</label>
+            <input type="password" id="setting-elevenlabs-key" class="hud-input" placeholder="xi-api-key...">
+          </div>
+          <div class="form-group">
+            <label for="setting-elevenlabs-voice">ElevenLabs Voice ID:</label>
+            <input type="text" id="setting-elevenlabs-voice" class="hud-input" value="21m00Tcm4TlvDq8ikWAM" placeholder="Voice ID (es. Rachel, Adam o Jarvis)">
+          </div>
+        </div>
+
+        <!-- Voice Language -->
+        <div class="form-group">
+          <label for="setting-lang">Lingua Riconoscimento & Risposta:</label>
+          <select id="setting-lang" class="hud-select">
+            <option value="it-IT">Italiano (it-IT)</option>
+            <option value="en-US">English (en-US)</option>
+          </select>
+        </div>
+
+        <!-- Options Switches -->
+        <div class="toggle-row">
+          <label for="setting-wake-word">Rilevamento Wake-Word ("Jarvis"):</label>
+          <input type="checkbox" id="setting-wake-word" class="hud-checkbox" checked>
+        </div>
+
+        <div class="toggle-row">
+          <label for="setting-continuous-rec">Ascolto Continuo Streaming:</label>
+          <input type="checkbox" id="setting-continuous-rec" class="hud-checkbox" checked>
+        </div>
+
+        <!-- Audio Testing -->
+        <div class="test-controls">
+          <button type="button" class="hud-btn" id="test-voice-btn">▶ Prova Voce Jarvis</button>
+          <button type="button" class="hud-btn" id="test-fx-btn">🔊 Prova Effetti HUD</button>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="hud-btn" id="save-settings-btn">SALVA CONFIGURAZIONE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Persistent Audio Element for Unrestricted Streaming Speech -->
+  <audio id="jarvis-audio-player" preload="auto" playsinline style="display: none;"></audio>
+
+  <!-- Main JavaScript Application Logic -->
+  <script src="./app.js?v=2026_stark_v10"></script>
+</body>
+</html>

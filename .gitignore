@@ -1,0 +1,7 @@
+.env
+.venv/
+android/local.properties
+android/.gradle/
+android/**/build/
+__pycache__/
+.tts_cache/
