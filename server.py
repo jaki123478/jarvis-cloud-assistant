@@ -781,6 +781,11 @@ async def text_to_speech(request: TTSRequest):
         print(f"[JARVIS TTS ERROR] {e}")
         raise HTTPException(status_code=500, detail=f"Errore generazione TTS: {str(e)}")
 
+@app.get("/tts/audio")
+async def text_to_speech_get(text: str, voice: str = "it-male"):
+    """Convenience endpoint per client mobili che non possono inviare un body POST."""
+    return await text_to_speech(TTSRequest(text=text, voice=voice))
+
 @app.get("/tts/voices")
 async def list_tts_voices():
     """Restituisce l'elenco delle voci TTS disponibili con alias."""
