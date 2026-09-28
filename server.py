@@ -907,6 +907,30 @@ async def chat(request: UserQuery):
         print(f"[JARVIS ERROR] {error_msg}")
         latency = round((time.time() - t_start) * 1000, 1)
 
+        # Recupero resiliente: una richiesta generica non deve fallire solo perché
+        # il modello ha prodotto una chiamata tool non valida o una cronologia
+        # precedente contiene un messaggio tool incompleto.
+        try:
+            recovery_messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": request.message},
+            ]
+            recovery = client.chat.completions.create(
+                model=model_name,
+                messages=recovery_messages,
+            )
+            recovery_reply = recovery.choices[0].message.content or "Non ho ricevuto contenuto dal modello."
+            conversation_history = recovery_messages + [{"role": "assistant", "content": recovery_reply}]
+            return {
+                "reply": recovery_reply,
+                "action": "chat",
+                "action_params": {},
+                "engine": f"{model_name}-recovery",
+                "latency_ms": round((time.time() - t_start) * 1000, 1)
+            }
+        except Exception as recovery_error:
+            print(f"[JARVIS RECOVERY ERROR] {recovery_error}")
+
         # Fallback resiliente sul modello locale se disponibile
         if LOCAL_NANOGPT_AVAILABLE:
             local_reply = ask_local_jarvis(request.message, local_nano_model, local_nano_enc, max_tokens=60, temp=0.7)
