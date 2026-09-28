@@ -10,4 +10,6 @@ services:
       - key: LLM_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: gpt-4o
+          value: llama-3.3-70b-versatile
+        - key: LLM_BASE_URL
+          value: https://api.groq.com/openai/v1
