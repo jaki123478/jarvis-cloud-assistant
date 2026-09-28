@@ -413,6 +413,9 @@ def fetch_wikipedia_summary(query: str) -> str:
 def fetch_web_synthesis(query: str) -> str:
     """Esegue una ricerca web live con sintesi testuale pulita tramite DuckDuckGo."""
     try:
+        # Invia al motore solo l'argomento reale, non il comando conversazionale.
+        query = re.sub(r"^(?:jarvis[, ]*)?(?:cerca|cercami|trova|verifica)\s+(?:sul web|online|su internet)\s*", "", query.strip(), flags=re.IGNORECASE)
+        query = query.strip() or "informazioni generali"
         results = list(DDGS().text(query, max_results=5))
         if not results:
             return None
