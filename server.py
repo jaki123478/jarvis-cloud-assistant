@@ -784,6 +784,17 @@ async def ping():
     """Healthcheck ping per calcolo latenza live su HUD."""
     return {"status": "pong", "time": time.time()}
 
+@app.get("/chat")
+async def chat_info():
+    """Informazioni utili quando l'endpoint viene aperto direttamente nel browser."""
+    return {
+        "status": "online",
+        "endpoint": "/chat",
+        "method": "POST",
+        "body": {"message": "Il tuo comando qui"},
+        "note": "Usa l'app Jarvis o una richiesta POST: questo indirizzo non è una pagina web."
+    }
+
 @app.post("/chat")
 async def chat(request: UserQuery):
     """Endpoint unificato con Tool Calling automatico, Web Search, Weather e Deep Linking."""
