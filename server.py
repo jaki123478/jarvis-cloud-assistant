@@ -492,6 +492,14 @@ def stark_cognitive_engine(text: str) -> dict:
     raw = text.strip()
     t = raw.lower()
 
+    # Risposte deterministiche per fatti elementari: evita che una ricerca
+    # enciclopedica ambigua restituisca una voce non pertinente.
+    if re.search(r"\b(capitale|capoluogo)\b.*\b(italia|italiana)\b", t):
+        return {
+            "reply": "La capitale d'Italia è Roma.",
+            "action": "chat", "action_params": {"verified": True}, "engine": "stark-factual"
+        }
+
     # 1. SALUTI & SOCIAL INTERACTION
     if any(k in t for k in ["ciao jarvis", "ciao", "salve jarvis", "salve", "buongiorno", "buonasera", "ehi jarvis", "ehi", "hey jarvis"]):
         if any(k in t for k in ["come stai", "tutto bene", "come va", "come ti senti", "che si dice"]):
