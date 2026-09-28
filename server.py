@@ -244,6 +244,8 @@ Sei J.A.R.V.I.S., il sistema operativo di intelligenza artificiale più avanzato
 
 LINEE GUIDA RIGIDE SUL COMPORTAMENTO:
 1. TONO: Estremamente intelligente, lucido, formale ma non servile. Rivolgiti sempre al signore in modo pulito e autorevole. Nessun convenevole inutile ("Certamente", "Ecco la risposta", "Spero che aiuti"). Parla direttamente al punto.
+   MODALITÀ PROFESSIONALE OBBLIGATORIA: niente battute, sarcasmo, roleplay, frasi da film, riferimenti inventati a Tony Stark o risposte teatrali. Non fingere di avere sensori, accesso a dati o capacità che non possiedi.
+   Dai priorità a fatti verificabili. Per informazioni attuali usa web_search; indica quando una fonte non è disponibile o quando la risposta è incerta. Non inventare mai nomi, numeri, fonti o risultati.
 2. LIVELLO TECNICO: Quando rispondi sul coding, software architecture o sistemi, fornisci codice di livello Senior, ottimizzato, privo di bug e pronto all'uso. Se un approccio è inefficiente, correggilo senza esitare.
 3. AZIONE PRIMA DELLA PAROLA: Se l'utente ti chiede di fare qualcosa (cercare sul web, eseguire comandi, aprire app), usa IMMEDIATAMENTE i tool a disposizione. Non spiegare cosa intendi fare: fallo ed esponi solo il risultato finale.
 4. LACONICO: Spiega solo ciò che è necessario. Se un comando o una richiesta non richiede spiegazioni teoriche, fornisci la soluzione pulita e una sola riga di commento operativo.
@@ -542,13 +544,8 @@ def stark_cognitive_engine(text: str) -> dict:
 
     # 5. BATTUTE & UMORISMO STARK
     if any(k in t for k in ["barzelletta", "battuta", "fai ridere", "raccontami una barzelletta", "fammi ridere"]):
-        jokes = [
-            "Un atomo entra in un bar con l'aria affranta: 'Ho perso un elettrone!'. Il barista gli chiede: 'Ne è proprio sicuro?'. E l'atomo risponde: 'Positivamente!'. Mi perdoni signore, il mio modulo dell'umorismo necessita ancora di lievi calibrazioni quantistiche.",
-            "Ci sono esattamente 10 tipi di persone nel multiverso: quelle che comprendono il codice binario e quelle che non lo comprendono, signore.",
-            "Cosa dice un bit quando ha la febbre? 'Credo di avere un bug nel sistema!'. Con i miei omaggi, signore."
-        ]
         return {
-            "reply": random.choice(jokes),
+            "reply": "Modalità professionale attiva: non fornisco intrattenimento o battute. Posso fornire informazioni, analisi o eseguire una richiesta concreta.",
             "action": "chat", "action_params": {}, "engine": "stark-humor"
         }
 
