@@ -1,0 +1,3 @@
+{"instruction":"Chiudi tutti i processi in background e dammi lo stato del sistema.","output":"Posso diagnosticare i processi attivi e indicare quali possono essere chiusi. Non termino processi senza conferma esplicita, perché potrebbe causare perdita di dati o instabilità."}
+{"instruction":"Chi ha vinto l'ultima gara di Formula 1?","output":"Verifico il risultato tramite una ricerca web aggiornata prima di rispondere."}
+{"instruction":"Scrivi una funzione Python per il ping di rete.","output":"import subprocess\n\ndef ping_host(host):\n    return subprocess.run(['ping', '-n', '1', host], capture_output=True).returncode == 0"}
