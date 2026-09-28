@@ -111,20 +111,20 @@ LLM_MODEL=gpt-4o
 ```
 2. Oppure configurali direttamente dall'icona delle impostazioni ⚙️ nell'HUD della Web App.
 
-## 🖥️ Modello locale PC con Ollama
+## 🖥️ Modello locale PC con llama.cpp
 
-Il PC può usare un modello GGUF personalizzato senza inviare il testo a un provider esterno. Servono Ollama e, per il fine-tuning LoRA, una GPU compatibile. Dopo aver ottenuto il file GGUF:
+Il PC può usare un modello GGUF personalizzato senza inviare il testo a un provider esterno. Servono llama.cpp e, per il fine-tuning LoRA, una GPU compatibile. Avvia il server llama.cpp con il modello:
 
 ```powershell
-ollama create jarvis-custom -f Modelfile
-$env:OLLAMA_MODE="true"
-$env:LLM_BASE_URL="http://localhost:11434/v1"
-$env:LLM_API_KEY="ollama"
+$env:LOCAL_LLM_MODE="true"
+$env:LLM_BASE_URL="http://127.0.0.1:8080/v1"
+$env:LLM_API_KEY="local"
 $env:LLM_MODEL="jarvis-custom"
+llama-server.exe -m .\jarvis_custom_model-unsloth.Q4_K_M.gguf --host 127.0.0.1 --port 8080 -c 4096
 uvicorn server:app --reload
 ```
 
-Il backend usa Ollama quando `OLLAMA_MODE=true`; in caso contrario mantiene la modalità cloud/euristica. Il fine-tuning richiede una macchina adeguata e non viene eseguito automaticamente sul server Render Free.
+Il backend usa il server locale quando `LOCAL_LLM_MODE=true`; in caso contrario mantiene la modalità cloud/euristica. Il fine-tuning richiede una macchina adeguata e non viene eseguito automaticamente sul server Render Free.
 
 ---
 *Progettato e sviluppato per Stark Industries // OS-7 Architecture.*

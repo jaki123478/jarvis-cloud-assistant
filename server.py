@@ -56,7 +56,7 @@ app.add_middleware(
 api_key = (os.getenv("LLM_API_KEY") or "TUA_API_KEY_QUI").strip()
 base_url = os.getenv("LLM_BASE_URL", None)
 model_name = os.getenv("LLM_MODEL", "gpt-4o")
-ollama_mode = os.getenv("OLLAMA_MODE", "false").lower() == "true"
+local_llm_mode = os.getenv("LOCAL_LLM_MODE", "false").lower() == "true"
 
 client = OpenAI(
     api_key=api_key if api_key != "TUA_API_KEY_QUI" else "sk-placeholder",
@@ -791,7 +791,7 @@ async def chat(request: UserQuery):
     t_start = time.time()
 
     # Motore Cognitivo Autonomo Stark (ACB) — Real-time Web, Wikipedia, Matematica e Personalità
-    if model_name == "nanogpt-local" or (api_key == "TUA_API_KEY_QUI" and not ollama_mode):
+    if model_name == "nanogpt-local" or (api_key == "TUA_API_KEY_QUI" and not local_llm_mode):
         cognitive_res = stark_cognitive_engine(request.message)
         latency = round((time.time() - t_start) * 1000, 1)
         cognitive_res["latency_ms"] = latency
