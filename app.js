@@ -452,6 +452,16 @@
     return baseEndpoint.replace(/\/+$/, '');
   }
 
+  function getClientSessionId() {
+    const key = 'jarvis_web_session_id';
+    let id = localStorage.getItem(key);
+    if (!id) {
+      id = `web-${crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+      localStorage.setItem(key, id);
+    }
+    return id;
+  }
+
   // =========================================================================
   // TELEMETRY: REAL-TIME FPS & SERVER LATENCY (PING)
   // =========================================================================
@@ -529,6 +539,14 @@
       DOM.healthStatus.textContent = warning ? 'ATTENZIONE' : 'NOMINALE';
       DOM.healthStatus.classList.toggle('health-warning', warning);
       DOM.healthUpdated.textContent = `LIVE · ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+      try {
+        const ready = await fetch(`${resolveBackendEndpoint()}/health/ready`, { cache: 'no-store' });
+        if (!ready.ok) throw new Error('Core non pronto');
+        const core = await ready.json();
+        DOM.healthStatus.textContent = core.ready && core.llm_configured ? (warning ? 'ATTENZIONE' : 'CORE ONLINE') : 'FALLBACK LOCALE';
+      } catch (_) {
+        DOM.healthStatus.textContent = navigator.onLine ? 'FALLBACK LOCALE' : 'OFFLINE';
+      }
     };
     update();
     window.setInterval(update, 5000);
@@ -2059,7 +2077,7 @@
       const response = await fetch(serverUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userText }),
+        body: JSON.stringify({ message: userText, client: 'web', session_id: getClientSessionId(), context: { device: /iPhone|iPad/i.test(navigator.userAgent) ? 'ios' : 'web' } }),
         signal: controller.signal
       });
 
