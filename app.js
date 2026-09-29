@@ -55,6 +55,9 @@
     memoryFacts: [],
     memoryCount: 0,
 
+    // Rubrica contatti locali (nome + numero) per "chiama Giulio"
+    contacts: [],
+
     // Settings (persisted in localStorage)
     settings: {
       llmProvider: 'fastapi', // 'fastapi', 'nanogpt', 'local', 'openai', 'xai'
@@ -68,7 +71,8 @@
       elevenLabsVoice: '21m00Tcm4TlvDq8ikWAM',
       lang: 'it-IT',
       wakeWordEnabled: true,
-      continuousRec: true,
+      // Il microfono parte solo dopo un'azione esplicita dell'utente.
+      continuousRec: false,
       personality: 'stark',
       customJokes: '',
       repeatMode: false
@@ -196,13 +200,24 @@
     memoryFactInput: document.getElementById('memory-fact-input'),
     memoryAddBtn: document.getElementById('memory-add-btn'),
     memoryRefreshBtn: document.getElementById('memory-refresh-btn'),
-    memoryClearBtn: document.getElementById('memory-clear-btn')
+    memoryClearBtn: document.getElementById('memory-clear-btn'),
+    // Rubrica contatti
+    contactsList: document.getElementById('contacts-list'),
+    contactNameInput: document.getElementById('contact-name-input'),
+    contactPhoneInput: document.getElementById('contact-phone-input'),
+    contactAddBtn: document.getElementById('contact-add-btn'),
+    contactQuickPanel: document.getElementById('contacts-quick-list'),
+    userNameGate: document.getElementById('user-name-gate'),
+    userNameInput: document.getElementById('user-name-input'),
+    userNameForm: document.getElementById('user-name-form'),
+    userNameError: document.getElementById('user-name-error')
   };
 
   // =========================================================================
   // INITIALIZATION & SERVICE WORKER
   // =========================================================================
   function init() {
+    initUserNameGate();
     initIosInstallGuide();
     try { loadSettings(); } catch (e) { console.error('[JARVIS INIT] loadSettings error:', e); }
     try { initClock(); } catch (e) { console.error('[JARVIS INIT] initClock error:', e); }
@@ -219,7 +234,37 @@
     try { initVisionScanner(); } catch (e) { console.error('[JARVIS INIT] initVisionScanner error:', e); }
     try { bindEvents(); } catch (e) { console.error('[JARVIS INIT] bindEvents error:', e); }
     try { refreshMemoryVault(); } catch (e) { console.warn('[JARVIS INIT] memory vault:', e); }
+    try { loadContacts(); renderContactsUI(); } catch (e) { console.warn('[JARVIS INIT] contacts:', e); }
     try { updateUIStatus('STANDBY'); } catch (e) { console.error('[JARVIS INIT] updateUIStatus error:', e); }
+  }
+
+  function initUserNameGate() {
+    const gate = DOM.userNameGate;
+    const input = DOM.userNameInput;
+    const form = DOM.userNameForm;
+    if (!gate || !input || !form) return;
+    const storedName = (localStorage.getItem('jarvis_user_name') || '').trim();
+    if (storedName) {
+      state.userName = storedName;
+      gate.hidden = true;
+      return;
+    }
+    gate.hidden = false;
+    window.setTimeout(() => input.focus(), 80);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const name = input.value.trim().replace(/\s+/g, ' ');
+      if (name.length < 2) {
+        if (DOM.userNameError) DOM.userNameError.textContent = 'Inserisci almeno 2 caratteri.';
+        input.focus();
+        return;
+      }
+      state.userName = name.slice(0, 40);
+      localStorage.setItem('jarvis_user_name', state.userName);
+      gate.hidden = true;
+      addLogEntry('SYSTEM', `Profilo utente attivo: ${state.userName}. Microfono in standby.`, 'PROFILE');
+      updateMicButtonUI(micPermissionGranted ? 'ready' : 'need-touch');
+    });
   }
 
   function initIosInstallGuide() {
@@ -649,6 +694,141 @@
     const data = await res.json();
     renderMemoryFacts((data.vault && data.vault.facts) || []);
     return data;
+  }
+
+
+  // =========================================================================
+  // RUBRICA CONTATTI (localStorage) — "chiama Giulio"
+  // =========================================================================
+  const CONTACTS_STORAGE_KEY = 'jarvis_contacts';
+
+  function loadContacts() {
+    try {
+      const raw = localStorage.getItem(CONTACTS_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      state.contacts = Array.isArray(parsed) ? parsed.filter((c) => c && c.name && c.phone).map((c) => ({
+        id: c.id || (`c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+        name: String(c.name).trim(),
+        phone: String(c.phone).trim()
+      })) : [];
+    } catch (e) {
+      console.warn('[JARVIS] Contatti non caricabili:', e);
+      state.contacts = [];
+    }
+    return state.contacts;
+  }
+
+  function saveContacts() {
+    try {
+      localStorage.setItem(CONTACTS_STORAGE_KEY, JSON.stringify(state.contacts || []));
+    } catch (e) {
+      console.warn('[JARVIS] Salvataggio contatti fallito:', e);
+    }
+  }
+
+  function normalizeContactName(name) {
+    return String(name || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function findContactByName(query) {
+    const q = normalizeContactName(query);
+    if (!q || q.length < 2) return null;
+    const list = state.contacts || [];
+    // Match esatto
+    let hit = list.find((c) => normalizeContactName(c.name) === q);
+    if (hit) return hit;
+    // Prefisso / contiene
+    hit = list.find((c) => {
+      const n = normalizeContactName(c.name);
+      return n.startsWith(q) || q.startsWith(n) || n.includes(q) || q.includes(n);
+    });
+    return hit || null;
+  }
+
+  function upsertContact(name, phone) {
+    const cleanName = String(name || '').trim();
+    const cleanPhone = String(phone || '').replace(/[^\d+*#]/g, '').trim();
+    if (cleanName.length < 2 || cleanPhone.length < 5) {
+      throw new Error('Nome (min 2) e numero (min 5 cifre) obbligatori');
+    }
+    const norm = normalizeContactName(cleanName);
+    const existing = (state.contacts || []).find((c) => normalizeContactName(c.name) === norm);
+    if (existing) {
+      existing.name = cleanName;
+      existing.phone = cleanPhone;
+    } else {
+      state.contacts.push({
+        id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name: cleanName,
+        phone: cleanPhone
+      });
+    }
+    saveContacts();
+    renderContactsUI();
+    return existing || state.contacts[state.contacts.length - 1];
+  }
+
+  function removeContact(id) {
+    state.contacts = (state.contacts || []).filter((c) => c.id !== id);
+    saveContacts();
+    renderContactsUI();
+  }
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[<>&"']/g, (c) => ({
+      '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function renderContactsUI() {
+    const list = state.contacts || [];
+    const renderItem = (c) => (
+      `<li class="contact-item" data-id="${escapeHtml(c.id)}">` +
+      `<div class="contact-meta"><span class="contact-name">${escapeHtml(c.name)}</span>` +
+      `<span class="contact-phone">${escapeHtml(c.phone)}</span></div>` +
+      `<div class="contact-actions">` +
+      `<button type="button" class="hud-btn contact-call-btn" data-id="${escapeHtml(c.id)}" title="Chiama">📞</button>` +
+      `<button type="button" class="memory-forget-btn contact-del-btn" data-id="${escapeHtml(c.id)}" title="Elimina">×</button>` +
+      `</div></li>`
+    );
+    if (DOM.contactsList) {
+      DOM.contactsList.innerHTML = list.length
+        ? list.map(renderItem).join('')
+        : '<li class="memory-empty">Nessun contatto. Aggiungi es. Giulio +39333… poi di&apos; «chiama Giulio».</li>';
+    }
+    if (DOM.contactQuickPanel) {
+      DOM.contactQuickPanel.innerHTML = list.length
+        ? list.slice(0, 6).map((c) => (
+            `<button type="button" class="shortcut-btn contact-quick-btn" data-id="${escapeHtml(c.id)}" title="Chiama ${escapeHtml(c.name)}">` +
+            `<span class="btn-prefix">📞</span> ${escapeHtml(c.name)}` +
+            `</button>`
+          )).join('')
+        : '<span class="form-hint" style="padding:4px 0;display:block;">Aggiungi contatti nelle Impostazioni.</span>';
+    }
+  }
+
+  function extractCallTarget(input) {
+    const raw = String(input || '').trim();
+    const numbers = raw.match(/\+?[0-9][0-9\s\-.]{4,18}/);
+    const phoneFromDigits = numbers ? numbers[0].replace(/[\s\-.]/g, '') : '';
+    let nameQuery = '';
+    const nameMatch = raw.match(
+      /(?:chiama|telefona|chiamata\s+(?:a|per)|fai\s+(?:una\s+)?chiamata\s+(?:a|per))\s+(?:tu\s+)?(?:a\s+|al\s+|alla\s+|il\s+|la\s+|lo\s+|l[''])?(.+)$/i
+    );
+    if (nameMatch) {
+      nameQuery = nameMatch[1]
+        .replace(/\+?[0-9][0-9\s\-.]{4,18}/g, '')
+        .replace(/\b(?:al\s+numero|numero|per\s+favore|prego|ora|subito|tu|con\s+la\s+tua\s+voce|con\s+la\s+mia\s+voce)\b/gi, '')
+        .replace(/[.,;!?]+$/g, '')
+        .trim();
+    }
+    return { phoneFromDigits, nameQuery };
   }
 
   // =========================================================================
@@ -1694,10 +1874,21 @@
   // Senza questo, la Promise TTS può rimanere pendente se 'ended' non arriva.
   let currentPlaybackResolve = null;
   let currentPlaybackTimer = null;
+  // Singolo pipeline TTS: generazione monotona invalida speak re-entrant / code SSE.
+  let speakGeneration = 0;
+  let currentSpeechQueue = [];
+  let isSpeakingQueue = false;
+  let currentHtmlAudio = null; // ElevenLabs / Audio ad-hoc
+  let activeEdgeAbort = null;  // AbortController fetch /tts
 
-  function stopCurrentAudio() {
+  /** Ferma SOLO l'audio in uscita (non tocca isSpeaking / STT). Usato prima di un nuovo speak. */
+  function cancelTtsPlaybackOnly() {
     isSpeakingQueue = false;
     currentSpeechQueue = [];
+    if (activeEdgeAbort) {
+      try { activeEdgeAbort.abort(); } catch (e) {}
+      activeEdgeAbort = null;
+    }
     if (currentPlaybackTimer) {
       clearTimeout(currentPlaybackTimer);
       currentPlaybackTimer = null;
@@ -1705,11 +1896,15 @@
     if (currentPlaybackResolve) {
       const resolve = currentPlaybackResolve;
       currentPlaybackResolve = null;
-      resolve();
+      try { resolve(); } catch (e) {}
     }
     if (currentAudioSource) {
       try { currentAudioSource.stop(); } catch (e) {}
       currentAudioSource = null;
+    }
+    if (currentHtmlAudio) {
+      try { currentHtmlAudio.pause(); currentHtmlAudio.currentTime = 0; } catch (e) {}
+      currentHtmlAudio = null;
     }
     if (DOM.jarvisAudioPlayer) {
       try { DOM.jarvisAudioPlayer.pause(); DOM.jarvisAudioPlayer.currentTime = 0; } catch (e) {}
@@ -1717,6 +1912,11 @@
     if ('speechSynthesis' in window) {
       try { window.speechSynthesis.cancel(); } catch (e) {}
     }
+  }
+
+  function stopCurrentAudio() {
+    speakGeneration += 1; // invalida speak() / code SSE in corso
+    cancelTtsPlaybackOnly();
     state.isSpeaking = false;
     state.speechPulseValue = 0;
     // User barge-in: drop echo guard quickly so they can speak again
@@ -1978,21 +2178,23 @@
     return chunks.length ? chunks : [cleanText];
   }
 
-  let currentSpeechQueue = [];
-  let isSpeakingQueue = false;
-
   async function speak(text) {
     if (!text) return;
+    const myGen = ++speakGeneration;
+    // Cancella motore precedente (nativo + edge + html) prima di qualsiasi nuovo audio
+    cancelTtsPlaybackOnly();
     unlockAudio();
     // Anti-echo: stop STT before any TTS audio leaves the speakers
     pauseSttForTts(Math.min(12000, 800 + String(text).length * 45));
     state.isSpeaking = true;
     updateUIStatus('SPEAKING');
 
+    const stillActive = () => myGen === speakGeneration;
+
     // Pulse reactor rhythmically while speaking
     let pulsePhase = 0;
     const pulseInterval = setInterval(() => {
-      if (!state.isSpeaking) {
+      if (!stillActive() || !state.isSpeaking) {
         clearInterval(pulseInterval);
         state.speechPulseValue = 0;
         return;
@@ -2002,6 +2204,7 @@
     }, 80);
 
     const finishSpeaking = () => {
+      if (!stillActive()) return;
       clearInterval(pulseInterval);
       state.speechPulseValue = 0;
       state.isSpeaking = false;
@@ -2009,44 +2212,99 @@
       resumeSttAfterTts(550);
     };
 
-    // Option 1: ElevenLabs API (se esplicitamente selezionato con API key valida)
-    if (state.settings.ttsEngine === 'elevenlabs' && state.settings.elevenLabsKey) {
-      try {
-        await speakWithElevenLabs(text);
-        finishSpeaking();
-        return;
-      } catch (err) {
-        console.warn('[JARVIS] ElevenLabs fallito, passo a Edge TTS / Nativo:', err);
-      }
-    }
-
-    // Option 2: Microsoft Edge Neural TTS — sentence pipeline (progressive voice)
     try {
-      const chunks = chunkTextForTTS(text, 140);
-      if (chunks.length > 1) {
-        await speakSentencesProgressive(chunks, speakWithEdgeTTS);
-      } else {
-        await speakWithEdgeTTS(text);
-      }
-      finishSpeaking();
-      return;
+      await playWithSelectedEngine(text, myGen);
     } catch (err) {
-      console.warn('[JARVIS] Edge TTS Server fallito o non raggiungibile, fallback su Web Speech Synthesis nativo:', err);
-    }
-
-    // Option 3: Web Speech Synthesis with Anti-Freeze Sentence Chunking (fallback di emergenza)
-    if ('speechSynthesis' in window) {
+      if (!stillActive()) return;
+      console.warn('[JARVIS] Motore TTS primario fallito, provo fallback singolo:', err);
       try {
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.resume();
-      } catch (e) {}
+        await playTtsFallback(text, myGen);
+      } catch (err2) {
+        console.warn('[JARVIS] Fallback TTS fallito:', err2);
+      }
+    }
+    if (stillActive()) finishSpeaking();
+  }
 
-      currentSpeechQueue = chunkTextForTTS(text);
-      isSpeakingQueue = true;
+  /** Un solo motore alla volta in base alle impostazioni — niente dual edge+native. */
+  async function playWithSelectedEngine(text, gen) {
+    const engine = state.settings.ttsEngine || 'edge-server';
+    if (engine === 'elevenlabs' && state.settings.elevenLabsKey) {
+      await speakWithElevenLabs(text, gen);
+      return;
+    }
+    if (engine === 'native') {
+      await speakWithNativeTTS(text, gen);
+      return;
+    }
+    // edge-server (default) e qualsiasi altro valore sconosciuto
+    const chunks = chunkTextForTTS(text, 140);
+    if (chunks.length > 1) {
+      await speakSentencesProgressive(chunks, (s) => speakWithEdgeTTS(s, gen), gen);
+    } else {
+      await speakWithEdgeTTS(text, gen);
+    }
+  }
 
+  /** Fallback di emergenza: un solo motore alternativo, mai in parallelo. */
+  async function playTtsFallback(text, gen) {
+    if (gen !== speakGeneration) return;
+    cancelTtsPlaybackOnly();
+    const engine = state.settings.ttsEngine || 'edge-server';
+    if (engine === 'edge-server' || engine === 'elevenlabs') {
+      await speakWithNativeTTS(text, gen);
+    } else {
+      // native fallito → prova edge se disponibile
+      await speakWithEdgeTTS(text, gen);
+    }
+  }
+
+  /**
+   * EDGE TTS SERVER ENGINE — Genera audio tramite il backend /tts (Microsoft Neural Voice)
+   * Riproduzione tramite Web Audio API (invia l'audio all'analizzatore FFT del Reattore)
+   * con fallback automatico su elemento <audio> persistente nel DOM.
+   */
+  async function speakSentencesProgressive(sentences, speakOne, gen) {
+    for (let i = 0; i < sentences.length; i++) {
+      if (gen !== speakGeneration) break;
+      const s = sentences[i];
+      if (!s || !String(s).trim()) continue;
+      pauseSttForTts(800 + String(s).length * 50);
+      await speakOne(s);
+    }
+  }
+
+  async function speakWithNativeTTS(text, gen) {
+    if (!('speechSynthesis' in window)) {
+      throw new Error('Web Speech Synthesis non disponibile');
+    }
+    if (gen !== speakGeneration) return;
+    // Mai mischiare con Edge/HTML audio
+    if (currentAudioSource) {
+      try { currentAudioSource.stop(); } catch (e) {}
+      currentAudioSource = null;
+    }
+    if (DOM.jarvisAudioPlayer) {
+      try { DOM.jarvisAudioPlayer.pause(); } catch (e) {}
+    }
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+    } catch (e) {}
+
+    currentSpeechQueue = chunkTextForTTS(text);
+    isSpeakingQueue = true;
+
+    return new Promise((resolve) => {
       function speakNextChunk() {
-        if (!isSpeakingQueue || currentSpeechQueue.length === 0) {
-          finishSpeaking();
+        if (gen !== speakGeneration || !isSpeakingQueue) {
+          isSpeakingQueue = false;
+          resolve();
+          return;
+        }
+        if (currentSpeechQueue.length === 0) {
+          isSpeakingQueue = false;
+          resolve();
           return;
         }
 
@@ -2082,32 +2340,14 @@
       }
 
       speakNextChunk();
-    } else {
-      finishSpeaking();
-    }
+    });
   }
 
-  /**
-   * EDGE TTS SERVER ENGINE — Genera audio tramite il backend /tts (Microsoft Neural Voice)
-   * Riproduzione tramite Web Audio API (invia l'audio all'analizzatore FFT del Reattore)
-   * con fallback automatico su elemento <audio> persistente nel DOM.
-   */
-  async function speakSentencesProgressive(sentences, speakOne) {
-    for (let i = 0; i < sentences.length; i++) {
-      if (!state.isSpeaking && !isSpeakingQueue) break;
-      const s = sentences[i];
-      if (!s || !String(s).trim()) continue;
-      // Extend echo guard for remaining audio
-      pauseSttForTts(800 + String(s).length * 50);
-      await speakOne(s);
-    }
-  }
-
-  async function speakWithEdgeTTS(text) {
+  async function speakWithEdgeTTS(text, gen) {
+    if (gen !== speakGeneration) return;
     const baseEndpoint = resolveBackendEndpoint();
     const ttsUrl = `${baseEndpoint.replace('/chat', '')}/tts`;
 
-    // Rimuovi markdown/link dal testo prima di mandarlo al TTS
     const cleanText = text
       .replace(/\(Fonte:\s*https?:\/\/[^\)]+\)/gi, '')
       .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
@@ -2120,40 +2360,49 @@
     if (!cleanText) return;
 
     unlockAudio();
+    // Evita dual engine: spegni sempre speechSynthesis prima di Edge
+    if ('speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+    }
 
     const controller = new AbortController();
+    activeEdgeAbort = controller;
     const requestTimer = setTimeout(() => controller.abort(), 20000);
     let response;
     try {
       response = await fetch(ttsUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        text: cleanText,
-        voice: state.settings.edgeTtsVoice || '',
-        rate: state.settings.edgeTtsRate || '+0%',
-        pitch: state.settings.edgeTtsPitch || '+0Hz'
-      })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          text: cleanText,
+          voice: state.settings.edgeTtsVoice || '',
+          rate: state.settings.edgeTtsRate || '+0%',
+          pitch: state.settings.edgeTtsPitch || '+0Hz'
+        })
       });
     } finally {
       clearTimeout(requestTimer);
+      if (activeEdgeAbort === controller) activeEdgeAbort = null;
     }
+
+    if (gen !== speakGeneration) return;
 
     if (!response.ok) {
       throw new Error(`Edge TTS Server returned ${response.status}`);
     }
 
     const arrayBuffer = await response.arrayBuffer();
+    if (gen !== speakGeneration) return;
 
-    // METODO A: Web Audio API (Bypassa qualsiasi blocco di autoplay se AudioContext è attivo,
-    // e anima il reattore olografico e le onde audio con la voce di Jarvis!)
+    // METODO A: Web Audio API
     if (state.audioCtx) {
       try {
         if (state.audioCtx.state === 'suspended') {
           await state.audioCtx.resume();
         }
         const audioBuffer = await state.audioCtx.decodeAudioData(arrayBuffer.slice(0));
+        if (gen !== speakGeneration) return;
         return new Promise((resolve) => {
           let settled = false;
           const finish = () => {
@@ -2176,7 +2425,6 @@
           };
           currentAudioSource = source;
           currentPlaybackResolve = finish;
-          // Safety net: durata audio + 5 secondi, nel caso onended venga perso.
           currentPlaybackTimer = setTimeout(finish, Math.max(10000, audioBuffer.duration * 1000 + 5000));
           source.start(0);
         });
@@ -2185,11 +2433,14 @@
       }
     }
 
+    if (gen !== speakGeneration) return;
+
     // METODO B: Elemento Audio persistente HTML5
     const audioBlob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
     const audioUrl = URL.createObjectURL(audioBlob);
     const player = DOM.jarvisAudioPlayer || new Audio();
     player.src = audioUrl;
+    currentHtmlAudio = player;
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -2197,6 +2448,7 @@
         if (currentPlaybackTimer) clearTimeout(currentPlaybackTimer);
         currentPlaybackTimer = null;
         if (currentPlaybackResolve === finish) currentPlaybackResolve = null;
+        if (currentHtmlAudio === player) currentHtmlAudio = null;
         URL.revokeObjectURL(audioUrl);
       };
       const finish = () => {
@@ -2225,32 +2477,38 @@
     });
   }
 
-  async function speakWithElevenLabs(text) {
+  async function speakWithElevenLabs(text, gen) {
+    if (gen !== speakGeneration) return;
+    if ('speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+    }
     const voiceId = state.settings.elevenLabsVoice || '21m00Tcm4TlvDq8ikWAM';
     const controller = new AbortController();
     const requestTimer = setTimeout(() => controller.abort(), 20000);
     let response;
     try {
       response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Accept': 'audio/mpeg',
-        'Content-Type': 'application/json',
-        'xi-api-key': state.settings.elevenLabsKey
-      },
-      body: JSON.stringify({
-        text: text,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.8
-        }
-      })
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': state.settings.elevenLabsKey
+        },
+        body: JSON.stringify({
+          text: text,
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.8
+          }
+        })
       });
     } finally {
       clearTimeout(requestTimer);
     }
+
+    if (gen !== speakGeneration) return;
 
     if (!response.ok) {
       throw new Error(`ElevenLabs API returned ${response.status}`);
@@ -2259,13 +2517,16 @@
     const audioBlob = await response.blob();
     const audioUrl = URL.createObjectURL(audioBlob);
     const audio = new Audio(audioUrl);
+    currentHtmlAudio = audio;
 
     return new Promise((resolve, reject) => {
       audio.onended = () => {
+        if (currentHtmlAudio === audio) currentHtmlAudio = null;
         URL.revokeObjectURL(audioUrl);
         resolve();
       };
       audio.onerror = (err) => {
+        if (currentHtmlAudio === audio) currentHtmlAudio = null;
         URL.revokeObjectURL(audioUrl);
         reject(err);
       };
@@ -2342,33 +2603,28 @@
       let finalData = null;
       let meta = null;
       let speechChain = Promise.resolve();
+      // Prendi possesso del pipeline TTS per questo stream (invalida speak() precedenti)
+      speakGeneration += 1;
+      const streamGen = speakGeneration;
+      cancelTtsPlaybackOnly();
       const enqueueSpeak = (sentence) => {
         speechChain = speechChain.then(async () => {
           if (!sentence || !String(sentence).trim()) return;
+          if (streamGen !== speakGeneration) return; // barge-in / nuovo speak
           if (!spoken) {
             spoken = true;
+            // Prendi possesso del pipeline: cancella audio precedente, stessa gen dello stream
+            cancelTtsPlaybackOnly();
             pauseSttForTts(2000);
             state.isSpeaking = true;
             updateUIStatus('SPEAKING');
           }
-          const speakNativeChunk = () => new Promise((resolve) => {
-            if (!('speechSynthesis' in window)) { resolve(); return; }
-            const u = new SpeechSynthesisUtterance(sentence);
-            u.lang = state.settings.lang || 'it-IT';
-            u.onend = resolve;
-            u.onerror = resolve;
-            window.speechSynthesis.speak(u);
-          });
           try {
-            if (state.settings.ttsEngine === 'elevenlabs' && state.settings.elevenLabsKey) {
-              await speakWithElevenLabs(sentence);
-            } else if (state.settings.ttsEngine === 'native') {
-              await speakNativeChunk();
-            } else {
-              await speakWithEdgeTTS(sentence);
-            }
+            await playWithSelectedEngine(sentence, streamGen);
           } catch (e) {
-            try { await speakNativeChunk(); } catch (_) {}
+            if (streamGen !== speakGeneration) return;
+            console.warn('[JARVIS] SSE TTS fallito, fallback singolo:', e);
+            try { await playTtsFallback(sentence, streamGen); } catch (_) {}
           }
         });
       };
@@ -2400,7 +2656,7 @@
         }
       }
       await speechChain;
-      if (spoken) {
+      if (spoken && streamGen === speakGeneration) {
         state.isSpeaking = false;
         updateUIStatus('STANDBY');
         resumeSttAfterTts(550);
@@ -2503,6 +2759,26 @@
     if (airomenMatch) {
       addLogEntry('USER', commandText);
       return tellStarkJoke('airomen');
+    }
+
+    // Chiamata per nome/numero (rubrica locale) — prima del LLM
+    // Evita falsi positivi tipo "come si chiama" / "mi chiamo"
+    if (/(?:^|\s)(chiama|telefona|chiamata)\b/i.test(commandText) && !/\b(come\s+si\s+chiama|mi\s+chiamo|si\s+chiama)\b/i.test(commandText)) {
+      const directCall = executeLocalIntentEngine(commandText);
+      if (directCall && (directCall.action === 'call' || directCall.action === 'ai_call')) {
+        addLogEntry('USER', commandText);
+        addLogEntry('JARVIS', directCall.speech, directCall.action === 'ai_call' ? 'VOICE-CALL' : 'CALL');
+        speak(directCall.speech);
+        executeToolAction(directCall.action, directCall.params);
+        return;
+      }
+      if (directCall && directCall.action === 'chat' && /chiama|telefona/i.test(commandText)) {
+        // Contatto sconosciuto: rispondi subito senza passare dal LLM
+        addLogEntry('USER', commandText);
+        addLogEntry('JARVIS', directCall.speech, 'CALL');
+        speak(directCall.speech);
+        return;
+      }
     }
 
     // Le chiamate AI sono sempre esplicite: evita che il modello confonda una
@@ -2694,15 +2970,49 @@ Azioni disponibili:
       };
     }
 
-    // CALL: "chiama il 333...", "fai una chiamata"
-    if (text.includes('chiama') || text.includes('telefona') || text.includes('chiamata')) {
-      const numbers = input.match(/\+?[0-9\s]{5,15}/);
-      const phoneNum = numbers ? numbers[0].replace(/\s+/g, '') : '';
+    // CALL: "chiama Giulio", "chiama il 333...", "fai una chiamata"
+    if ((/(?:^|\s)(chiama|telefona|chiamata)\b/.test(text) || text.includes('telefona'))
+        && !/\b(come\s+si\s+chiama|mi\s+chiamo|si\s+chiama)\b/.test(text)) {
+      const { phoneFromDigits, nameQuery } = extractCallTarget(input);
+      let phoneNum = phoneFromDigits;
+      let contactName = '';
+      const genericDial = !nameQuery || /^(numero|assistenza|qualcuno|telefono|tastierino|un numero)(\s|$)/i.test(nameQuery)
+        || /numero di assistenza|tastierino/i.test(nameQuery);
+      if (!phoneNum && nameQuery && !genericDial) {
+        const contact = findContactByName(nameQuery);
+        if (contact) {
+          phoneNum = contact.phone;
+          contactName = contact.name;
+        }
+      } else if (phoneNum && nameQuery && !genericDial) {
+        const contact = findContactByName(nameQuery);
+        if (contact) contactName = contact.name;
+      }
       const aiCall = /parla tu|parla con|con la tua voce|con la mia voce|chiama tu|interagisci|conversazione/i.test(input);
+      let speech;
+      const unknownContact = !phoneNum && nameQuery && !genericDial;
+      if (aiCall) {
+        speech = contactName
+          ? `Avvio una chiamata vocale AI verso ${contactName}, signore.`
+          : (phoneNum ? `Avvio una chiamata vocale AI al numero ${phoneNum}, signore.` : 'Mi serve un contatto o un numero per la chiamata AI, signore.');
+      } else if (contactName && phoneNum) {
+        speech = `Chiamo ${contactName} al ${phoneNum}, signore.`;
+      } else if (phoneNum) {
+        speech = `Avvio la composizione del numero ${phoneNum}, signore.`;
+      } else if (unknownContact) {
+        speech = `Non trovo «${nameQuery}» in rubrica. Aggiunga il contatto dalle Impostazioni, signore.`;
+      } else {
+        speech = 'Apro l\'interfaccia telefonica, signore.';
+      }
+      const action = unknownContact ? 'chat' : (aiCall ? 'ai_call' : 'call');
       return {
-        speech: aiCall ? `Avvio una chiamata vocale AI al numero ${phoneNum}, signore.` : (phoneNum ? `Avvio la composizione del numero ${phoneNum}, signore.` : 'Apro l\'interfaccia telefonica, signore.'),
-        action: aiCall ? 'ai_call' : 'call',
-        params: { phone: phoneNum, opening: 'Buongiorno, sono JARVIS, un assistente vocale basato su intelligenza artificiale. Posso parlare con lei?' }
+        speech,
+        action,
+        params: {
+          phone: phoneNum,
+          contactName,
+          opening: 'Buongiorno, sono JARVIS, un assistente vocale basato su intelligenza artificiale. Posso parlare con lei?'
+        }
       };
     }
 
@@ -2804,12 +3114,20 @@ Azioni disponibili:
       }
 
       case 'call': {
-        const phone = String(params.phone || '').replace(/[^0-9+*#]/g, '');
+        let phone = String(params.phone || '').replace(/[^0-9+*#]/g, '');
+        let contactName = String(params.contactName || '').trim();
+        if (!phone && params.query) {
+          const hit = findContactByName(params.query);
+          if (hit) { phone = hit.phone; contactName = hit.name; }
+        }
         const telLink = phone ? `tel:${phone}` : 'tel:';
+        const label = contactName && phone
+          ? `${contactName} · ${phone}`
+          : (phone ? `Destinatario: ${phone}` : 'Tastierino telefonico');
 
         addActionCard(
           'CHIAMATA TELEFONICA',
-          phone ? `Destinatario: ${phone}` : 'Tastierino telefonico',
+          label,
           'CHIAMA ORA',
           telLink,
           telLink
@@ -3067,31 +3385,38 @@ Azioni disponibili:
   // =========================================================================
   function initIosChatDockKeyboard() {
     // Keep the chat dock above the iOS Safari / PWA keyboard via visualViewport.
+    // Use position:fixed + bottom only (CSS kb-open keeps safe-area padding; no double offset).
     if (!DOM.manualInputForm || !window.visualViewport) return;
     const dock = DOM.manualInputForm;
+    const clearDockLift = () => {
+      dock.classList.remove('kb-open');
+      dock.style.removeProperty('--kb-offset');
+      dock.style.bottom = '';
+      dock.style.position = '';
+      dock.style.left = '';
+      dock.style.right = '';
+      dock.style.zIndex = '';
+      dock.style.width = '';
+    };
     const sync = () => {
       if (window.innerWidth > 768) {
-        dock.classList.remove('kb-open');
-        dock.style.removeProperty('--kb-offset');
-        dock.style.bottom = '';
+        clearDockLift();
         return;
       }
       const vv = window.visualViewport;
       const covered = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
       if (covered > 40) {
         dock.classList.add('kb-open');
-        dock.style.setProperty('--kb-offset', covered + 'px');
-        dock.style.bottom = covered + 'px';
         dock.style.position = 'fixed';
         dock.style.left = '0';
         dock.style.right = '0';
+        dock.style.width = '100%';
+        dock.style.bottom = covered + 'px';
+        dock.style.zIndex = '200';
+        // Keep --kb-offset for any legacy CSS; padding no longer uses it (avoids double-count).
+        dock.style.setProperty('--kb-offset', '0px');
       } else {
-        dock.classList.remove('kb-open');
-        dock.style.removeProperty('--kb-offset');
-        dock.style.bottom = '';
-        dock.style.position = '';
-        dock.style.left = '';
-        dock.style.right = '';
+        clearDockLift();
       }
     };
     window.visualViewport.addEventListener('resize', sync);
@@ -3170,6 +3495,8 @@ Azioni disponibili:
       triggerHaptic(20);
       DOM.settingsModal.removeAttribute('hidden');
       refreshMemoryVault();
+      loadContacts();
+      renderContactsUI();
     });
 
     DOM.closeSettingsBtn.addEventListener('click', closeModal);
@@ -3203,28 +3530,6 @@ Azioni disponibili:
         speak('Sistemi operativi online, signore. In attesa di istruzioni.');
       });
     }
-
-    // 3. Attiva microfono/WakeLock e Audio al primo tocco sullo schermo (richiesto dai browser mobile)
-    let hasWelcomed = false;
-    const onFirstUserInteraction = async () => {
-      unlockAudio();
-      await requestMicrophonePermission();
-      requestWakeLock(true);
-      if (navigator.vibrate) {
-        navigator.vibrate(40);
-      }
-      if (!hasWelcomed) {
-        hasWelcomed = true;
-        setTimeout(() => {
-          speak('Sistemi operativi online, signore. In attesa di istruzioni.');
-        }, 350);
-      }
-      if (state.settings.continuousRec && state.recognition && !state.isSpeechActive) {
-        try {
-          state.recognition.start();
-        } catch (e) {}
-      }
-    };
 
     // Memory Vault controls (settings modal)
     if (DOM.memoryRefreshBtn) {
@@ -3273,8 +3578,67 @@ Azioni disponibili:
       });
     }
 
-    window.addEventListener('click', onFirstUserInteraction, { once: true });
-    window.addEventListener('touchstart', onFirstUserInteraction, { once: true });
+    // Rubrica contatti (settings + pannello rapido)
+    const saveContactFromForm = () => {
+      const name = (DOM.contactNameInput && DOM.contactNameInput.value || '').trim();
+      const phone = (DOM.contactPhoneInput && DOM.contactPhoneInput.value || '').trim();
+      try {
+        const c = upsertContact(name, phone);
+        if (DOM.contactNameInput) DOM.contactNameInput.value = '';
+        if (DOM.contactPhoneInput) DOM.contactPhoneInput.value = '';
+        addLogEntry('JARVIS', `Contatto salvato: ${c.name} (${c.phone}). Dica «chiama ${c.name}».`, 'CONTACTS');
+        speak(`Ho salvato ${c.name} in rubrica, signore.`);
+      } catch (err) {
+        addLogEntry('JARVIS', String(err.message || err), 'CONTACTS-ERROR');
+      }
+    };
+    if (DOM.contactAddBtn) {
+      DOM.contactAddBtn.addEventListener('click', () => {
+        triggerHaptic(20);
+        saveContactFromForm();
+      });
+    }
+    if (DOM.contactPhoneInput) {
+      DOM.contactPhoneInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); saveContactFromForm(); }
+      });
+    }
+    if (DOM.contactsList) {
+      DOM.contactsList.addEventListener('click', (e) => {
+        const del = e.target.closest('.contact-del-btn');
+        const callBtn = e.target.closest('.contact-call-btn');
+        if (del) {
+          const id = del.getAttribute('data-id');
+          const c = (state.contacts || []).find((x) => x.id === id);
+          removeContact(id);
+          addLogEntry('JARVIS', c ? `Rimosso ${c.name} dalla rubrica.` : 'Contatto rimosso.', 'CONTACTS');
+          triggerHaptic(15);
+          return;
+        }
+        if (callBtn) {
+          const id = callBtn.getAttribute('data-id');
+          const c = (state.contacts || []).find((x) => x.id === id);
+          if (!c) return;
+          triggerHaptic(25);
+          speak(`Chiamo ${c.name}, signore.`);
+          executeToolAction('call', { phone: c.phone, contactName: c.name });
+        }
+      });
+    }
+    if (DOM.contactQuickPanel) {
+      DOM.contactQuickPanel.addEventListener('click', (e) => {
+        const btn = e.target.closest('.contact-quick-btn');
+        if (!btn) return;
+        const id = btn.getAttribute('data-id');
+        const c = (state.contacts || []).find((x) => x.id === id);
+        if (!c) return;
+        triggerHaptic(25);
+        unlockAudio();
+        speak(`Chiamo ${c.name}, signore.`);
+        executeToolAction('call', { phone: c.phone, contactName: c.name });
+      });
+    }
+
   }
 
   // =========================================================================

@@ -32,10 +32,23 @@
     }
   </script>
 
-  <link rel="stylesheet" href="./style.css?v=2026_stark_v11_ios">
+  <link rel="stylesheet" href="./style.css?v=2026_stark_v13_contacts">
   <title>J.A.R.V.I.S. // Stark Industries HUD</title>
 </head>
 <body>
+  <section class="user-name-gate" id="user-name-gate" hidden aria-modal="true" role="dialog" aria-labelledby="user-name-title">
+    <div class="user-name-card">
+      <div class="user-name-kicker">J.A.R.V.I.S. // PROFILO LOCALE</div>
+      <h2 id="user-name-title">Come devo chiamarti?</h2>
+      <p>Imposta il tuo nome per personalizzare le risposte. Il microfono resterà spento finché non lo attiverai tu.</p>
+      <form id="user-name-form" novalidate>
+        <label for="user-name-input">Nome utente</label>
+        <input id="user-name-input" name="userName" type="text" autocomplete="name" maxlength="40" placeholder="Il tuo nome" required>
+        <div class="user-name-error" id="user-name-error" aria-live="polite"></div>
+        <button type="submit">CONTINUA</button>
+      </form>
+    </div>
+  </section>
   <!-- Holographic HUD Scanlines Overlay -->
   <div class="hud-scanlines"></div>
   <div class="hud-vignette"></div>
@@ -250,6 +263,12 @@
               <button class="shortcut-btn" data-command="Chiama il numero di assistenza">
                 <span class="btn-prefix">📞</span> Chiamata
               </button>
+            </div>
+            <div class="card-header" style="margin-top:10px;">
+              <span class="card-subtitle">RUBRICA RAPIDA // CONTATTI</span>
+            </div>
+            <div class="shortcut-grid" id="contacts-quick-list">
+              <span class="form-hint" style="padding:4px 0;display:block;">Aggiungi contatti nelle Impostazioni.</span>
             </div>
           </div>
 
@@ -538,6 +557,20 @@
           <small class="form-hint">Verranno usate anche con “raccontami una battuta”.</small>
         </div>
 
+        <!-- Rubrica Contatti (chiama per nome) -->
+        <div class="form-group contacts-vault-group">
+          <label>Rubrica Contatti (chiamata per nome)</label>
+          <small class="form-hint">Salva nome + numero in locale. Poi di&apos; o scrivi «chiama Giulio».</small>
+          <ul id="contacts-list" class="contacts-list custom-scrollbar">
+            <li class="memory-empty">Nessun contatto salvato.</li>
+          </ul>
+          <div class="memory-add-row contacts-add-row">
+            <input type="text" id="contact-name-input" class="hud-input" placeholder="Nome (es. Giulio)" maxlength="60" autocomplete="name">
+            <input type="tel" id="contact-phone-input" class="hud-input" placeholder="Numero (+39…)" maxlength="24" autocomplete="tel">
+            <button type="button" class="hud-btn" id="contact-add-btn">SALVA</button>
+          </div>
+        </div>
+
         <!-- Memory Vault -->
         <div class="form-group memory-vault-group">
           <label>Memory Vault (persistente sul server)</label>
@@ -572,7 +605,7 @@
   <audio id="jarvis-audio-player" preload="auto" playsinline style="display: none;"></audio>
 
   <!-- Main JavaScript Application Logic -->
-  <script src="./webrtc.js?v=2026_webrtc_v1"></script>
-  <script src="./app.js?v=2026_stark_v11_ios"></script>
+  <script src="./webrtc.js?v=2026_webrtc_v1b"></script>
+  <script src="./app.js?v=2026_stark_v13_contacts"></script>
 </body>
 </html>

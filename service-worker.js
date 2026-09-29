@@ -1,5 +1,5 @@
 // Service Worker for J.A.R.V.I.S. PWA - Network-First Strategy
-const CACHE_NAME = 'jarvis-hud-v10';
+const CACHE_NAME = 'jarvis-hud-v13';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
