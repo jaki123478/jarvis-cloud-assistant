@@ -48,6 +48,8 @@
     // Anti-echo: ignore STT while TTS plays + short cooldown after
     echoGuardUntil: 0,
     sttPausedForTts: false,
+    // Explicit user MUTE: pause/ignore STT until UNMUTE (anti-echo UX)
+    micMuted: false,
 
     // Memory Vault (server-side facts mirrored in HUD)
     memoryFacts: [],
@@ -149,6 +151,9 @@
     micGlyph: document.getElementById('mic-glyph'),
     micMasterLabel: document.getElementById('mic-master-label'),
     micStatusBadge: document.getElementById('mic-status-badge'),
+    hudMuteBtn: document.getElementById('hud-mute-btn'),
+    muteGlyph: document.getElementById('mute-glyph'),
+    muteLabel: document.getElementById('mute-label'),
     btnRequestMic: document.getElementById('btn-request-mic'),
     httpsAlertBanner: document.getElementById('https-alert-banner'),
     transcriptBox: document.getElementById('transcript-box'),
@@ -483,14 +488,65 @@
   }
 
   function updateAntiEchoHUD(active) {
-    if (DOM.diagAntiEchoState) {
-      DOM.diagAntiEchoState.textContent = active ? 'ATTIVO (STT IN PAUSA)' : 'STANDBY';
-      DOM.diagAntiEchoState.style.color = active ? '#ffaa00' : '';
+    if (!DOM.diagAntiEchoState) return;
+    if (state.micMuted) {
+      DOM.diagAntiEchoState.textContent = 'MUTE (STT OFF)';
+      DOM.diagAntiEchoState.style.color = '#ff5555';
+      return;
     }
+    DOM.diagAntiEchoState.textContent = active ? 'ATTIVO (STT IN PAUSA)' : 'STANDBY';
+    DOM.diagAntiEchoState.style.color = active ? '#ffaa00' : '';
   }
 
   function isEchoGuarded() {
-    return state.isSpeaking || state.sttPausedForTts || Date.now() < (state.echoGuardUntil || 0);
+    return !!(state.micMuted || state.isSpeaking || state.sttPausedForTts || Date.now() < (state.echoGuardUntil || 0));
+  }
+
+  function updateMuteButtonUI() {
+    if (!DOM.hudMuteBtn) return;
+    const muted = !!state.micMuted;
+    DOM.hudMuteBtn.classList.toggle('is-muted', muted);
+    DOM.hudMuteBtn.setAttribute('aria-pressed', muted ? 'true' : 'false');
+    if (DOM.muteLabel) DOM.muteLabel.textContent = muted ? 'UNMUTE' : 'MUTE';
+    if (DOM.muteGlyph) DOM.muteGlyph.textContent = muted ? '🔇' : '🎤';
+    updateAntiEchoHUD(isEchoGuarded());
+  }
+
+  function setMicMuted(muted, opts = {}) {
+    const next = !!muted;
+    if (state.micMuted === next && !opts.force) {
+      updateMuteButtonUI();
+      return;
+    }
+    state.micMuted = next;
+    if (next) {
+      if (state.reconnectTimer) {
+        clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = null;
+      }
+      if (state.recognition && state.isSpeechActive) {
+        try { state.recognition.abort(); } catch (e) {}
+      }
+      if (state.isListening) {
+        try { stopDirectListening(); } catch (e) {}
+      }
+      if (DOM.statusBannerText && !state.isSpeaking) {
+        DOM.statusBannerText.textContent = '🔇 MUTE — TOCCA UNMUTE PER ASCOLTARE';
+      }
+    } else if (!opts.skipResume) {
+      if (state.settings.continuousRec && micPermissionGranted && !state.isSpeaking && !state.sttPausedForTts) {
+        startListeningStream();
+      }
+      if (DOM.statusBannerText && state.currentStatus === 'STANDBY') {
+        DOM.statusBannerText.textContent = 'TOCCA IL REATTORE O IL MICROFONO';
+      }
+    }
+    updateMuteButtonUI();
+  }
+
+  function toggleMicMute() {
+    triggerHaptic(28);
+    setMicMuted(!state.micMuted);
   }
 
   function pauseSttForTts(extraMs = 600) {
@@ -509,9 +565,10 @@
   function resumeSttAfterTts(cooldownMs = 550) {
     state.sttPausedForTts = false;
     state.echoGuardUntil = Date.now() + cooldownMs;
-    updateAntiEchoHUD(Date.now() < state.echoGuardUntil);
+    updateAntiEchoHUD(isEchoGuarded());
     window.setTimeout(() => {
       updateAntiEchoHUD(isEchoGuarded());
+      if (state.micMuted) return;
       if (state.settings.continuousRec && micPermissionGranted && !state.isSpeaking && !state.sttPausedForTts) {
         startListeningStream();
       }
@@ -1667,12 +1724,13 @@
     state.echoGuardUntil = Date.now() + 280;
     updateAntiEchoHUD(true);
     window.setTimeout(() => {
-      updateAntiEchoHUD(false);
-      if (state.settings.continuousRec && micPermissionGranted) startListeningStream();
+      updateAntiEchoHUD(isEchoGuarded());
+      if (!state.micMuted && state.settings.continuousRec && micPermissionGranted) startListeningStream();
     }, 300);
   }
 
   function startListeningStream() {
+    if (state.micMuted) return;
     if (state.recognition && !state.isSpeechActive && !isEchoGuarded()) {
       try {
         state.recognition.start();
@@ -1695,6 +1753,11 @@
     if (DOM.hudMicMasterBtn && DOM.hudMicMasterBtn.classList.contains('is-denied')) {
       alert('Per attivare il microfono:\n1. Clicca sull\'icona 🔒 a sinistra dell\'indirizzo URL del browser.\n2. Imposta "Microfono" su "Consenti".\n3. Ricarica la pagina.');
       return;
+    }
+
+    // Intentional speak gesture clears MUTE so the user can talk again
+    if (state.micMuted) {
+      setMicMuted(false, { skipResume: true });
     }
 
     // Se Jarvis sta parlando, un tocco sul reattore lo interrompe all'istante
@@ -3002,10 +3065,57 @@ Azioni disponibili:
   // =========================================================================
   // EVENT BINDINGS
   // =========================================================================
+  function initIosChatDockKeyboard() {
+    // Keep the chat dock above the iOS Safari / PWA keyboard via visualViewport.
+    if (!DOM.manualInputForm || !window.visualViewport) return;
+    const dock = DOM.manualInputForm;
+    const sync = () => {
+      if (window.innerWidth > 768) {
+        dock.classList.remove('kb-open');
+        dock.style.removeProperty('--kb-offset');
+        dock.style.bottom = '';
+        return;
+      }
+      const vv = window.visualViewport;
+      const covered = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      if (covered > 40) {
+        dock.classList.add('kb-open');
+        dock.style.setProperty('--kb-offset', covered + 'px');
+        dock.style.bottom = covered + 'px';
+        dock.style.position = 'fixed';
+        dock.style.left = '0';
+        dock.style.right = '0';
+      } else {
+        dock.classList.remove('kb-open');
+        dock.style.removeProperty('--kb-offset');
+        dock.style.bottom = '';
+        dock.style.position = '';
+        dock.style.left = '';
+        dock.style.right = '';
+      }
+    };
+    window.visualViewport.addEventListener('resize', sync);
+    window.visualViewport.addEventListener('scroll', sync);
+    window.addEventListener('focusin', (e) => {
+      if (e.target === DOM.manualTextInput) setTimeout(sync, 50);
+    });
+    window.addEventListener('focusout', () => setTimeout(sync, 80));
+  }
+
   function bindEvents() {
+    initIosChatDockKeyboard();
+    updateMuteButtonUI();
+
     // Tap on Master Mic Button, Left Panel Quick Mic, Arc Reactor, or Status Banner
     if (DOM.hudMicMasterBtn) {
       DOM.hudMicMasterBtn.addEventListener('click', toggleVoiceMode);
+    }
+    if (DOM.hudMuteBtn) {
+      DOM.hudMuteBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleMicMute();
+      });
     }
     if (DOM.btnRequestMic) {
       DOM.btnRequestMic.addEventListener('click', toggleVoiceMode);

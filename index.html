@@ -32,7 +32,7 @@
     }
   </script>
 
-  <link rel="stylesheet" href="./style.css?v=2026_stark_v8">
+  <link rel="stylesheet" href="./style.css?v=2026_stark_v11_ios">
   <title>J.A.R.V.I.S. // Stark Industries HUD</title>
 </head>
 <body>
@@ -327,6 +327,10 @@
               <span class="mic-master-text" id="mic-master-label">TOCCA PER ATTIVARE IL MICROFONO</span>
               <span class="mic-status-badge" id="mic-status-badge">ATTIVA ORA</span>
             </button>
+            <button class="hud-mute-btn" id="hud-mute-btn" type="button" aria-pressed="false" aria-label="Muta o riattiva microfono" title="MUTE: il microfono ignora l'audio (anti-echo mentre Jarvis parla)">
+              <span class="mute-glyph" id="mute-glyph">🔇</span>
+              <span class="mute-label" id="mute-label">MUTE</span>
+            </button>
           </div>
 
           <div class="transcript-box" id="transcript-box">
@@ -361,18 +365,22 @@
           </div>
         </div>
 
-        <!-- Manual text prompt input bar (Silent Input Mode) -->
-        <form class="terminal-input-bar" id="manual-input-form">
-          <input type="text" id="manual-text-input" placeholder="Invia direttiva di testo a Jarvis..." autocomplete="off">
-          <button type="submit" class="hud-send-btn" id="manual-send-btn" aria-label="Invia comando">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-            </svg>
-          </button>
-        </form>
       </section>
 
     </main>
+
+    <!-- Always-visible text chat dock (outside panels so iOS safe-area / fixed works) -->
+    <form class="terminal-input-bar chat-dock" id="manual-input-form" autocomplete="off">
+      <label class="chat-dock-label" for="manual-text-input">SCRIVI A JARVIS</label>
+      <div class="chat-dock-row">
+        <input type="text" id="manual-text-input" placeholder="Scrivi a Jarvis…" autocomplete="off" enterkeyhint="send" autocapitalize="sentences" inputmode="text">
+        <button type="submit" class="hud-send-btn" id="manual-send-btn" aria-label="Invia comando">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
+        </button>
+      </div>
+    </form>
 
     <!-- FOOTER TELEMETRY STRIP -->
     <footer class="hud-footer">
@@ -565,6 +573,6 @@
 
   <!-- Main JavaScript Application Logic -->
   <script src="./webrtc.js?v=2026_webrtc_v1"></script>
-  <script src="./app.js?v=2026_stark_v10"></script>
+  <script src="./app.js?v=2026_stark_v11_ios"></script>
 </body>
 </html>
