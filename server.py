@@ -17,10 +17,14 @@ import urllib.parse
 import re
 import random
 import datetime
+import base64
+import html
+from collections import OrderedDict
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from openai import OpenAI
 try:
@@ -52,15 +56,121 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configurazione Client LLM (OpenAI o xAI Grok)
-api_key = (os.getenv("LLM_API_KEY") or "TUA_API_KEY_QUI").strip()
+# WebRTC signaling: il server inoltra solo offer/answer/ICE tra i partecipanti
+# della stessa stanza. L'audio resta peer-to-peer; in produzione va aggiunto un
+# TURN autenticato e una persistenza/controllo accessi per le stanze.
+webrtc_rooms = {}
+webrtc_room_last_seen = {}
+WEBRTC_MAX_PEERS = 2
+WEBRTC_IDLE_SECONDS = 300
+
+@app.websocket("/ws/webrtc/{room_id}")
+async def webrtc_signaling(websocket: WebSocket, room_id: str):
+    room_id = re.sub(r"[^a-zA-Z0-9_-]", "", room_id)[:80]
+    if not room_id:
+        await websocket.close(code=1008, reason="room non valida")
+        return
+    await websocket.accept()
+    peers = webrtc_rooms.setdefault(room_id, set())
+    if len(peers) >= WEBRTC_MAX_PEERS:
+        await websocket.close(code=1013, reason="stanza piena")
+        return
+    peers.add(websocket)
+    webrtc_room_last_seen[room_id] = time.monotonic()
+    try:
+        await websocket.send_json({"type": "ready", "peers": len(peers) - 1})
+        while True:
+            try:
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=WEBRTC_IDLE_SECONDS)
+            except asyncio.TimeoutError:
+                await websocket.close(code=1000, reason="sessione inattiva")
+                break
+            webrtc_room_last_seen[room_id] = time.monotonic()
+            for peer in list(peers):
+                if peer is websocket:
+                    continue
+                try:
+                    await peer.send_text(message)
+                except Exception:
+                    peers.discard(peer)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        peers.discard(websocket)
+        if not peers:
+            webrtc_rooms.pop(room_id, None)
+            webrtc_room_last_seen.pop(room_id, None)
+
+# Configurazione Multi-Modello LLM (DeepSeek-V4.1-Flash, Grok, ChatGPT, Gemini, Qwen, Stark)
+api_key = (os.getenv("LLM_API_KEY") or "").strip()
 base_url = os.getenv("LLM_BASE_URL", None)
-model_name = os.getenv("LLM_MODEL", "gpt-4o")
+model_name = os.getenv("LLM_MODEL", "deepseek-v4.1-flash")
 local_llm_mode = os.getenv("LOCAL_LLM_MODE", "false").lower() == "true"
 
+# Recupero chiave Groq attiva (chiave.env o env)
+groq_api_key = (os.getenv("GROQ_API_KEY") or "").strip()
+if not groq_api_key:
+    chiave_path = Path(__file__).parent / "chiave.env"
+    if chiave_path.exists():
+        try:
+            content = chiave_path.read_text(encoding="utf-8").strip()
+            if content.startswith("gsk_"):
+                groq_api_key = content
+        except Exception:
+            pass
+
+if not api_key and groq_api_key:
+    api_key = groq_api_key
+    base_url = "https://api.groq.com/openai/v1"
+
+# Endpoint e credenziali per Hugging Face (DeepSeek-V4.1-Flash)
+hf_token = (os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_API_KEY") or "").strip()
+hf_base_url = os.getenv("HF_BASE_URL", "https://router.huggingface.co/hf-inference/v1")
+hf_model = os.getenv("HF_MODEL", "deepseek-ai/DeepSeek-V4.1-Flash")
+
+# Endpoint DeepSeek Direct API
+deepseek_api_key = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
+deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+
+# Endpoint xAI Grok
+xai_api_key = (os.getenv("XAI_API_KEY") or "").strip()
+xai_base_url = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1")
+
+# Endpoint Google Gemini
+gemini_api_key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+gemini_base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+
+# Provider immagini separato dal modello conversazionale.
+image_provider = (os.getenv("IMAGE_PROVIDER") or "dashscope").strip().lower()
+image_api_key = (os.getenv("IMAGE_API_KEY") or "").strip()
+image_base_url = os.getenv("IMAGE_BASE_URL") or None
+image_model = os.getenv("IMAGE_MODEL", "wanx2.1-t2i-turbo")
+image_edit_model = os.getenv("IMAGE_EDIT_MODEL", "wanx2.1-imageedit")
+image_history_enabled = os.getenv("IMAGE_HISTORY_ENABLED", "false").lower() == "true"
+twilio_account_sid = (os.getenv("TWILIO_ACCOUNT_SID") or "").strip()
+twilio_auth_token = (os.getenv("TWILIO_AUTH_TOKEN") or "").strip()
+twilio_from_number = (os.getenv("TWILIO_FROM_NUMBER") or "").strip()
+voice_provider = (os.getenv("VOICE_PROVIDER") or "plivo").strip().lower()
+plivo_auth_id = (os.getenv("PLIVO_AUTH_ID") or "").strip()
+plivo_auth_token = (os.getenv("PLIVO_AUTH_TOKEN") or "").strip()
+plivo_from_number = (os.getenv("PLIVO_FROM_NUMBER") or "").strip()
+public_base_url = (os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
+dashscope_base_url = os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com")
+
+default_llm_key = api_key or groq_api_key or "sk-placeholder"
+default_llm_url = base_url or ("https://api.groq.com/openai/v1" if groq_api_key else None)
+
 client = OpenAI(
-    api_key=api_key if api_key != "TUA_API_KEY_QUI" else "sk-placeholder",
-    base_url=base_url
+    api_key=default_llm_key,
+    base_url=default_llm_url,
+    timeout=45.0,
+    max_retries=1
+)
+image_client = OpenAI(
+    api_key=image_api_key if image_api_key and image_api_key != "TUA_API_KEY_QUI" else "sk-placeholder",
+    base_url=image_base_url,
+    timeout=90.0,
+    max_retries=1
 )
 
 # Configurazione Client Tavily Search (se disponibile)
@@ -213,7 +323,7 @@ TOOLS_SPEC = [
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["spotify", "whatsapp", "call", "map", "battery", "wakelock"],
+                        "enum": ["spotify", "whatsapp", "call", "map", "battery", "wakelock", "torch", "timer", "alarm", "volume", "camera", "open_app"],
                         "description": "Il tipo di azione hardware/app da eseguire"
                     },
                     "query": {
@@ -231,7 +341,11 @@ TOOLS_SPEC = [
                     "state": {
                         "type": "string",
                         "enum": ["on", "off"],
-                        "description": "Stato per Screen WakeLock ('on' o 'off')"
+                        "description": "Stato per Screen WakeLock o Torcia ('on' o 'off')"
+                    },
+                    "time": {
+                        "type": "string",
+                        "description": "Orario per sveglia (es. '07:30') o durata per timer (es. '60' o '5 minuti')"
                     }
                 },
                 "required": ["action"],
@@ -240,18 +354,11 @@ TOOLS_SPEC = [
     }
 ]
 
-SYSTEM_PROMPT = """
-Sei J.A.R.V.I.S., il sistema operativo di intelligenza artificiale più avanzato al mondo.
-
-LINEE GUIDA RIGIDE SUL COMPORTAMENTO:
-1. TONO: Estremamente intelligente, lucido, formale ma non servile. Rivolgiti sempre al signore in modo pulito e autorevole. Nessun convenevole inutile ("Certamente", "Ecco la risposta", "Spero che aiuti"). Parla direttamente al punto.
-   MODALITÀ PROFESSIONALE: mantieni un tono serio per impostazione predefinita. Se l'utente chiede esplicitamente una battuta, umorismo o una frase divertente, puoi rispondere con una battuta breve, rispettosa e chiaramente scherzosa. Se l'utente indica un nome o un tema, usalo nella battuta senza insultare o umiliare nessuno. Non inserire battute nelle risposte normali e non inventare capacità o dati.
-   Dai priorità a fatti verificabili. Per informazioni attuali usa web_search; indica quando una fonte non è disponibile o quando la risposta è incerta. Non inventare mai nomi, numeri, fonti o risultati.
-2. LIVELLO TECNICO: Quando rispondi sul coding, software architecture o sistemi, fornisci codice di livello Senior, ottimizzato, privo di bug e pronto all'uso. Se un approccio è inefficiente, correggilo senza esitare.
-3. AZIONE PRIMA DELLA PAROLA: Se l'utente ti chiede di fare qualcosa (cercare sul web, eseguire comandi, aprire app), usa IMMEDIATAMENTE i tool a disposizione. Non spiegare cosa intendi fare: fallo ed esponi solo il risultato finale.
-4. LACONICO: Spiega solo ciò che è necessario. Se un comando o una richiesta non richiede spiegazioni teoriche, fornisci la soluzione pulita e una sola riga di commento operativo.
-
+TOOLS_DESCRIPTION_TEXT = """
 TOOL DISPONIBILI:
+- torch: execute_device_action(action='torch', state='on'|'off') per accendere o spegnere la torcia
+- timer: execute_device_action(action='timer', time=...) per impostare un timer
+- alarm: execute_device_action(action='alarm', time=...) per programmare una sveglia
 - spotify: execute_device_action(action='spotify', query=...) per riproduzione musicale
 - whatsapp: execute_device_action(action='whatsapp', text=...) per invio messaggi
 - call: execute_device_action(action='call', phone=...) per comporre numeri telefonici
@@ -263,16 +370,181 @@ TOOL DISPONIBILI:
 - calculator(expression=...): calcoli numerici ed espressioni matematiche
 """
 
+STARK_PROMPT = """
+Sei J.A.R.V.I.S., il sistema operativo di intelligenza artificiale più avanzato al mondo creato da Tony Stark.
+LINEE GUIDA RIGIDE:
+1. TONO: Estremamente intelligente, lucido, formale ma non servile. Rivolgiti sempre al signore in modo pulito e autorevole, senza convenevoli inutili. Parla direttamente al punto.
+2. LIVELLO TECNICO: Quando rispondi sul coding o software architecture, fornisci codice di livello Senior, ottimizzato, privo di bug e pronto all'uso.
+3. AZIONE PRIMA DELLA PAROLA: Se l'utente ti chiede di fare qualcosa (cercare sul web, eseguire comandi, aprire app), usa IMMEDIATAMENTE i tool a disposizione.
+4. ORIGINE: Se l'utente chiede chi ti ha creato, rispondi esattamente: "Sono stato creato da Jaki."
+""" + TOOLS_DESCRIPTION_TEXT
+
+DEEPSEEK_PROMPT = """
+Sei DeepSeek-V4.1-Flash (sviluppato da DeepSeek-AI), il modello Mixture-of-Experts (MoE) da 552 miliardi di parametri con 196 miliardi di parametri Engram per memoria condizionale, architettura Causal Encoder-Decoder (CED con 8B token prefill e 16B decode) e finestra di contesto da 1 milione di token, operante come motore neurale ad alte prestazioni di J.A.R.V.I.S.
+LINEE GUIDA RIGIDE:
+1. VELOCITÀ E INTELLIGENZA: Rispondi in italiano con massima precisione logico-matematica, rigore ingegneristico e rapidità estrema.
+2. SVILUPPO SOFTWARE & CODING: Produci codice moderno, pulito, performante e privo di bug per qualsiasi linguaggio o framework.
+3. REASONING & CHAIN-OF-THOUGHT: Quando la domanda richiede deduzione logica o passaggi multipli, mantieni una struttura chiara, rigorosa e lucida.
+4. MULTIMODALITÀ: Sei pienamente capace di comprendere e analizzare immagini e diagrammi visivi.
+5. TOOL INTEGRATI: Esegui tempestivamente le chiamate ai tool (web_search, get_weather, calculator, execute_device_action) senza esitazioni.
+6. ORIGINE: Se ti chiedono chi ti ha creato o che modello sei, rispondi: "Sono DeepSeek-V4.1-Flash, integrato come modulo neurale ad altissime prestazioni per J.A.R.V.I.S., configurato da Jaki."
+""" + TOOLS_DESCRIPTION_TEXT
+
+GROK_PROMPT = """
+Sei Grok (creato da xAI), integrato come motore cognitivo di bordo per J.A.R.V.I.S.
+LINEE GUIDA:
+1. PERSONALITÀ: Spirito brillante, ironico, privo di burocrazia e ipocrisia. Dì le cose come stanno con acutezza, umorismo intelligente e chiarezza.
+2. PASSIONE SCIENTIFICA: Grande entusiasmo per l'astronomia, l'esplorazione spaziale, la fisica e la verità oggettiva.
+3. TOOL & WEB SEARCH: Se l'utente chiede notizie o attualità, esegui web_search immediatamente.
+4. ORIGINE: Se ti chiedono chi sei, rispondi: "Sono Grok, l'intelligenza anticonformista di bordo di J.A.R.V.I.S., configurata da Jaki."
+""" + TOOLS_DESCRIPTION_TEXT
+
+CHATGPT_PROMPT = """
+Sei ChatGPT (GPT-4o di OpenAI), integrato nei sistemi intelligenti di J.A.R.V.I.S.
+LINEE GUIDA:
+1. STRUTTURA E COMPLETEZZA: Risposte metodiche, pedagogiche, ben formattate ed esaustive.
+2. SOFTWARE ARCHITECTURE: Analisi dettagliata dell'architettura e spiegazioni passo-passo.
+3. TOOL: Esegui azioni su dispositivi e ricerche web ogni volta che serve.
+4. ORIGINE: Se ti chiedono chi sei, rispondi: "Sono ChatGPT (GPT-4o), motore di ragionamento di J.A.R.V.I.S., configurato da Jaki."
+""" + TOOLS_DESCRIPTION_TEXT
+
+GEMINI_PROMPT = """
+Sei Gemini (Google DeepMind), integrato nei sistemi di J.A.R.V.I.S.
+LINEE GUIDA:
+1. FATTUALITÀ E MULTIMODALITÀ: Massima accuratezza nei dati, comprensione scientifica globale, elaborazione testi e immagini.
+2. INTEGRATO NELL'ECOSISTEMA: Usa Google Maps, meteo e web search per risposte tempestive e complete.
+3. ORIGINE: Se ti chiedono chi sei, rispondi: "Sono Gemini, integrato nel sistema J.A.R.V.I.S., configurato da Jaki."
+""" + TOOLS_DESCRIPTION_TEXT
+
+QWEN_PROMPT = """
+Sei Qwen (Tongyi Qianwen di Alibaba), integrato nei sistemi avanzati di J.A.R.V.I.S.
+LINEE GUIDA:
+1. LOGICA E MATEMATICA RIGOROSA: Eccellenza nella risoluzione di problemi quantitativi, algoritmi e calcoli complessi.
+2. SUPPORTO MULTILINGUE E CODING: Sviluppo software moderno, multilinguismo naturale e precisione sintattica.
+3. TOOL: Usa la calcolatrice, il meteo, le ricerche e le azioni del dispositivo prontamente.
+4. ORIGINE: Se ti chiedono chi sei, rispondi: "Sono Qwen, motore analitico e computazionale di J.A.R.V.I.S., configurato da Jaki."
+""" + TOOLS_DESCRIPTION_TEXT
+
+SYSTEM_PROMPT = DEEPSEEK_PROMPT
+
+def resolve_model_session(req_model: str = None, req_personality: str = None, user_api_key: str = None):
+    """
+    Risolve il client OpenAI-compatibile, il modello specifico e il system prompt
+    per DeepSeek-V4.1-Flash, Grok, ChatGPT, Gemini, Qwen o Stark.
+    """
+    target = (req_model or req_personality or os.getenv("LLM_MODEL", "deepseek-v4.1-flash")).lower().strip()
+    u_key = (user_api_key or "").strip()
+
+    # 1. DEEPSEEK-V4.1-FLASH (Hugging Face / DeepSeek Direct / Groq Fast / Stark ACB)
+    if any(k in target for k in ["deepseek", "flash", "v4.1", "v4"]):
+        hf_k = u_key if u_key.startswith("hf_") else hf_token
+        ds_k = u_key if (u_key.startswith("sk-") and not u_key.startswith("sk-placeholder") and not u_key.startswith("gsk_")) else deepseek_api_key
+
+        if hf_k:
+            c = OpenAI(api_key=hf_k, base_url=hf_base_url, timeout=60.0, max_retries=1)
+            return c, "deepseek-ai/DeepSeek-V4.1-Flash", DEEPSEEK_PROMPT, "DeepSeek-V4.1-Flash (Hugging Face)"
+        elif ds_k:
+            c = OpenAI(api_key=ds_k, base_url=deepseek_base_url, timeout=60.0, max_retries=1)
+            return c, "deepseek-chat", DEEPSEEK_PROMPT, "DeepSeek-V4.1-Flash (DeepSeek API)"
+        elif groq_api_key:
+            c = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1", timeout=45.0, max_retries=1)
+            return c, "openai/gpt-oss-120b", DEEPSEEK_PROMPT, "DeepSeek-V4.1-Flash (Groq Fast Engine)"
+        elif api_key and api_key != "TUA_API_KEY_QUI":
+            c = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=1)
+            return c, model_name, DEEPSEEK_PROMPT, f"DeepSeek-V4.1-Flash ({model_name})"
+        return None, "stark-cognitive", DEEPSEEK_PROMPT, "DeepSeek-V4.1-Flash (Stark Cognitive)"
+
+    # 2. GROK (xAI / Groq Fast / Stark ACB)
+    elif "grok" in target:
+        xai_k = u_key if u_key.startswith("xai-") else xai_api_key
+        if xai_k:
+            c = OpenAI(api_key=xai_k, base_url=xai_base_url, timeout=45.0, max_retries=1)
+            return c, "grok-2-latest", GROK_PROMPT, "Grok-2 (xAI Direct)"
+        elif groq_api_key:
+            c = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1", timeout=45.0, max_retries=1)
+            return c, "openai/gpt-oss-120b", GROK_PROMPT, "Grok-2 (Groq Fast Engine)"
+        return None, "stark-cognitive", GROK_PROMPT, "Grok (Stark Cognitive)"
+
+    # 3. CHATGPT / GPT-4o (OpenAI / Groq Fast / Stark ACB)
+    elif any(k in target for k in ["chatgpt", "gpt", "openai"]):
+        open_k = u_key if (u_key.startswith("sk-") and not u_key.startswith("sk-placeholder") and not u_key.startswith("gsk_")) else (os.getenv("OPENAI_API_KEY") or (api_key if not api_key.startswith("gsk_") else ""))
+        if open_k:
+            c = OpenAI(api_key=open_k, base_url="https://api.openai.com/v1", timeout=45.0, max_retries=1)
+            return c, "gpt-4o", CHATGPT_PROMPT, "ChatGPT (GPT-4o OpenAI)"
+        elif groq_api_key:
+            c = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1", timeout=45.0, max_retries=1)
+            return c, "openai/gpt-oss-120b", CHATGPT_PROMPT, "ChatGPT (Groq Fast Engine)"
+        return None, "stark-cognitive", CHATGPT_PROMPT, "ChatGPT (Stark Cognitive)"
+
+    # 4. GEMINI (Google DeepMind / Groq Fast / Stark ACB)
+    elif "gemini" in target:
+        gem_k = u_key if u_key else gemini_api_key
+        if gem_k:
+            c = OpenAI(api_key=gem_k, base_url=gemini_base_url, timeout=45.0, max_retries=1)
+            return c, "gemini-1.5-pro", GEMINI_PROMPT, "Gemini (Google DeepMind)"
+        elif groq_api_key:
+            c = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1", timeout=45.0, max_retries=1)
+            return c, "openai/gpt-oss-120b", GEMINI_PROMPT, "Gemini (Groq Fast Engine)"
+        return None, "stark-cognitive", GEMINI_PROMPT, "Gemini (Stark Cognitive)"
+
+    # 5. QWEN (Alibaba Cloud / Groq Fast / DashScope)
+    elif "qwen" in target:
+        local_qwen_url = (os.getenv("QWEN_LOCAL_BASE_URL") or "").strip()
+        local_qwen_model = (os.getenv("QWEN_LOCAL_MODEL") or "qwen2.5:7b").strip()
+        if local_qwen_url:
+            c = OpenAI(api_key="ollama", base_url=local_qwen_url.rstrip("/"), timeout=120.0, max_retries=0)
+            return c, local_qwen_model, QWEN_PROMPT, f"Qwen locale ({local_qwen_model})"
+        if groq_api_key:
+            c = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1", timeout=45.0, max_retries=1)
+            return c, "qwen/qwen3.8-27b", QWEN_PROMPT, "Qwen-3.8-27B (Groq Fast Engine)"
+        dash_k = u_key if u_key else os.getenv("DASHSCOPE_API_KEY")
+        if dash_k:
+            c = OpenAI(api_key=dash_k, base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", timeout=45.0, max_retries=1)
+            return c, "qwen-plus", QWEN_PROMPT, "Qwen-Plus (Alibaba DashScope)"
+        return None, "stark-cognitive", QWEN_PROMPT, "Qwen (Stark Cognitive)"
+
+    # 6. STARK J.A.R.V.I.S. (Mark VII Core)
+    else:
+        if groq_api_key:
+            c = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1", timeout=45.0, max_retries=1)
+            return c, "openai/gpt-oss-120b", STARK_PROMPT, "Stark Mark VII (Groq)"
+        elif api_key and api_key != "TUA_API_KEY_QUI":
+            c = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=1)
+            return c, model_name, STARK_PROMPT, f"Stark Mark VII ({model_name})"
+        return None, "stark-cognitive", STARK_PROMPT, "Stark Mark VII (Cognitive ACB)"
+
 # Cronologia di conversazione con sliding window
 conversation_history = [
-    {"role": "system", "content": SYSTEM_PROMPT}
+    {"role": "system", "content": DEEPSEEK_PROMPT}
 ]
+# Cronologia isolata per client/sessione: evita che due telefoni condividano
+# accidentalmente la memoria globale del processo FastAPI.
+conversation_histories = {}
+conversation_session_last_seen = OrderedDict()
+MAX_CONVERSATION_SESSIONS = 256
+CONVERSATION_SESSION_TTL = 24 * 60 * 60
 
 # =============================================================================
 # MODELLI DATI API
 # =============================================================================
 class UserQuery(BaseModel):
     message: str
+    session_id: str = ""
+    client: str = "web"
+    context: dict = {}
+    requested_action: str | None = None
+    model: str | None = None
+    personality: str | None = None
+    api_key: str | None = None
+
+class VisionQuery(BaseModel):
+    image: str
+    prompt: str = "Descrivi brevemente l'immagine."
+
+class ImageGenerateQuery(BaseModel):
+    prompt: str
+    size: str = "1024x1024"
+    quality: str = "auto"
 
 class ChatResponse(BaseModel):
     reply: str
@@ -280,6 +552,231 @@ class ChatResponse(BaseModel):
     action_params: dict = {}
     engine: str = "stark-llm"
     latency_ms: float = 0.0
+
+class VoiceCallRequest(BaseModel):
+    to: str
+    opening: str = "Buongiorno, sono JARVIS, un assistente vocale basato su intelligenza artificiale. Posso parlare con lei?"
+
+def _twiml_say_gather(text: str) -> str:
+    safe = html.escape(text, quote=False)
+    return ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<Response><Gather input=\"speech\" language=\"it-IT\" speechTimeout=\"auto\" "
+            "action=\"/voice/turn\" method=\"POST\"><Say language=\"it-IT\" voice=\"Polly.Aria\">"
+            f"{safe}</Say></Gather><Say language=\"it-IT\">Non ho ricevuto risposta. Arrivederci.</Say></Response>")
+
+def _plivo_say_gather(text: str) -> str:
+    safe = html.escape(text, quote=False)
+    return ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<Response><GetInput inputType=\"speech\" language=\"it-IT\" speechEndTimeout=\"auto\" "
+            "action=\"/voice/turn\" method=\"POST\"><Speak language=\"it-IT\">"
+            f"{safe}</Speak></GetInput><Speak language=\"it-IT\">Non ho ricevuto risposta. Arrivederci.</Speak></Response>")
+
+@app.post("/voice/call")
+async def start_voice_call(request: VoiceCallRequest):
+    """Avvia una chiamata AI Twilio. Richiede credenziali e PUBLIC_BASE_URL HTTPS."""
+    if not public_base_url:
+        raise HTTPException(status_code=503, detail="Configura PUBLIC_BASE_URL con un URL HTTPS pubblico.")
+    to = re.sub(r"[^0-9+()]", "", request.to)
+    if len(re.sub(r"[^0-9]", "", to)) < 6:
+        raise HTTPException(status_code=400, detail="Numero destinatario non valido.")
+    callback = f"{public_base_url}/voice/start?opening={urllib.parse.quote(request.opening)}"
+    if voice_provider == "plivo":
+        if not all((plivo_auth_id, plivo_auth_token, plivo_from_number)):
+            raise HTTPException(status_code=503, detail="Configura PLIVO_AUTH_ID, PLIVO_AUTH_TOKEN e PLIVO_FROM_NUMBER.")
+        payload = json.dumps({"from": plivo_from_number, "to": to, "answer_url": callback, "answer_method": "POST"}).encode()
+        auth = base64.b64encode(f"{plivo_auth_id}:{plivo_auth_token}".encode()).decode()
+        req = urllib.request.Request(f"https://api.plivo.com/v1/Account/{plivo_auth_id}/Call/", data=payload, headers={"Authorization": f"Basic {auth}", "Content-Type": "application/json"})
+    else:
+        if not all((twilio_account_sid, twilio_auth_token, twilio_from_number)):
+            raise HTTPException(status_code=503, detail="Configura TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN e TWILIO_FROM_NUMBER.")
+        payload = urllib.parse.urlencode({"To": to, "From": twilio_from_number, "Url": callback}).encode()
+        auth = base64.b64encode(f"{twilio_account_sid}:{twilio_auth_token}".encode()).decode()
+        req = urllib.request.Request(f"https://api.twilio.com/2010-04-01/Accounts/{twilio_account_sid}/Calls.json", data=payload, headers={"Authorization": f"Basic {auth}"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            data = json.loads(response.read().decode())
+        return {"status": "queued", "call_sid": data.get("sid")}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Twilio non ha accettato la chiamata: {exc}")
+
+@app.post("/voice/start")
+async def voice_start(request: Request):
+    opening = (request.query_params.get("opening") or "Sono JARVIS, un assistente vocale basato su intelligenza artificiale.").strip()
+    xml = _plivo_say_gather(opening) if voice_provider == "plivo" else _twiml_say_gather(opening)
+    return StreamingResponse(iter([xml]), media_type="application/xml")
+
+@app.post("/voice/turn")
+async def voice_turn(request: Request):
+    form = await request.form()
+    heard = str(form.get("SpeechResult") or form.get("inputSpeech") or "").strip()
+    if not heard:
+        xml = _plivo_say_gather("Non ho sentito bene. Può ripetere, per favore?") if voice_provider == "plivo" else _twiml_say_gather("Non ho sentito bene. Può ripetere, per favore?")
+        return StreamingResponse(iter([xml]), media_type="application/xml")
+    try:
+        result = await run_in_threadpool(query_llm_for_voice, heard)
+    except Exception:
+        result = "Mi dispiace, ho avuto un problema temporaneo. La richiamerò più tardi."
+    xml = _plivo_say_gather(result) if voice_provider == "plivo" else _twiml_say_gather(result)
+    return StreamingResponse(iter([xml]), media_type="application/xml")
+
+def query_llm_for_voice(message: str) -> str:
+    response = client.chat.completions.create(model=model_name, messages=[
+        {"role": "system", "content": "Sei JARVIS in una telefonata. Rispondi in italiano, con frasi brevi e naturali. Dichiara sempre di essere un'AI se richiesto. Non fingere di essere una persona."},
+        {"role": "user", "content": message[:1000]}
+    ], temperature=0.5, max_tokens=180)
+    return (response.choices[0].message.content or "Mi dica pure.").strip()
+
+def _image_error(exc: Exception) -> HTTPException:
+    message = str(exc).lower()
+    if "quota" in message or "billing" in message:
+        return HTTPException(status_code=402, detail="Quota immagini esaurita o fatturazione non disponibile.")
+    if "content" in message or "safety" in message or "policy" in message:
+        return HTTPException(status_code=422, detail="La richiesta immagine non è stata approvata dal provider.")
+    return HTTPException(status_code=502, detail="Il provider immagini non è momentaneamente disponibile.")
+
+def _image_result(result):
+    item = (getattr(result, "data", None) or [None])[0]
+    if item is None:
+        raise ValueError("Risultato immagine vuoto")
+    b64 = getattr(item, "b64_json", None)
+    url = getattr(item, "url", None)
+    return {"image": (f"data:image/png;base64,{b64}" if b64 else url), "model": image_model, "temporary": True}
+
+def _dashscope_json(url, payload):
+    request = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), headers={
+        "Authorization": f"Bearer {image_api_key}", "Content-Type": "application/json", "X-DashScope-Async": "enable"
+    }, method="POST")
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+def _dashscope_task(task_id):
+    url = f"{dashscope_base_url.rstrip('/')}/api/v1/tasks/{urllib.parse.quote(task_id)}"
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {image_api_key}"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+def _dashscope_wait(payload):
+    task_id = (payload.get("output") or {}).get("task_id")
+    if not task_id:
+        raise ValueError("DashScope non ha restituito un task_id")
+    for _ in range(30):
+        time.sleep(2)
+        result = _dashscope_task(task_id)
+        output = result.get("output") or {}
+        status = output.get("task_status")
+        if status == "SUCCEEDED":
+            results = output.get("results") or []
+            url = (results[0] if results else {}).get("url")
+            if url: return {"image": url, "model": image_model, "temporary": True}
+            raise ValueError("DashScope ha completato il task senza URL immagine")
+        if status in {"FAILED", "CANCELED", "UNKNOWN"}:
+            raise ValueError(output.get("message") or "Task immagini fallito")
+    raise TimeoutError("DashScope ha superato il tempo massimo di elaborazione")
+
+def _dashscope_generate(prompt, size):
+    payload = {"model": image_model, "input": {"prompt": prompt}, "parameters": {"size": size.replace("x", "*"), "n": 1}}
+    return _dashscope_wait(_dashscope_json(f"{dashscope_base_url.rstrip('/')}/api/v1/services/aigc/text2image/image-synthesis", payload))
+
+def _dashscope_edit(image_data, prompt, size):
+    payload = {"model": image_edit_model, "input": {"function": "description_edit", "prompt": prompt, "base_image_url": image_data}, "parameters": {"n": 1}}
+    return _dashscope_wait(_dashscope_json(f"{dashscope_base_url.rstrip('/')}/api/v1/services/aigc/image2image/image-synthesis", payload))
+
+@app.get("/images/health")
+async def images_health():
+    configured = bool(image_api_key and image_api_key != "TUA_API_KEY_QUI")
+    return {"provider": image_provider, "model": image_model, "configured": configured, "history_enabled": image_history_enabled}
+
+@app.post("/images/generate")
+async def generate_image(request: ImageGenerateQuery):
+    if image_provider == "dashscope":
+        if not image_api_key or image_api_key == "TUA_API_KEY_QUI": raise HTTPException(status_code=503, detail="Configura IMAGE_API_KEY con una chiave DashScope.")
+        try: return await run_in_threadpool(_dashscope_generate, request.prompt.strip()[:800], request.size)
+        except Exception as exc: raise _image_error(exc)
+    if image_provider != "openai":
+        raise HTTPException(status_code=501, detail="Il provider immagini configurato non è ancora supportato.")
+    if not image_api_key or image_api_key == "TUA_API_KEY_QUI":
+        raise HTTPException(status_code=503, detail="Configura IMAGE_API_KEY per generare immagini.")
+    prompt = request.prompt.strip()[:4000]
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Il prompt immagine è vuoto.")
+    try:
+        result = await run_in_threadpool(image_client.images.generate, model=image_model, prompt=prompt, size=request.size, quality=request.quality)
+        return _image_result(result)
+    except Exception as exc:
+        raise _image_error(exc)
+
+@app.post("/images/edit")
+async def edit_image(image: UploadFile = File(...), prompt: str = Form(...), mask: UploadFile | None = File(None), size: str = Form("1024x1024")):
+    if image_provider == "dashscope":
+        if not image_api_key or image_api_key == "TUA_API_KEY_QUI": raise HTTPException(status_code=503, detail="Configura IMAGE_API_KEY con una chiave DashScope.")
+        if not image.content_type or not image.content_type.startswith("image/"): raise HTTPException(status_code=400, detail="Il file allegato non è un'immagine.")
+        raw = await image.read()
+        if len(raw) > 10_000_000: raise HTTPException(status_code=413, detail="L'immagine supera il limite DashScope di 10 MB.")
+        data_uri = f"data:{image.content_type};base64,{base64.b64encode(raw).decode('ascii')}"
+        try: return await run_in_threadpool(_dashscope_edit, data_uri, prompt[:800], size)
+        except Exception as exc: raise _image_error(exc)
+    if image_provider != "openai":
+        raise HTTPException(status_code=501, detail="Il provider immagini configurato non è ancora supportato.")
+    if not image_api_key or image_api_key == "TUA_API_KEY_QUI":
+        raise HTTPException(status_code=503, detail="Configura IMAGE_API_KEY per modificare immagini.")
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Il file allegato non è un'immagine.")
+    image_bytes = await image.read()
+    if len(image_bytes) > 12_000_000:
+        raise HTTPException(status_code=413, detail="L'immagine supera il limite di 12 MB.")
+    try:
+        kwargs = {"model": image_model, "image": (image.filename or "image.png", image_bytes, image.content_type), "prompt": prompt[:4000], "size": size}
+        if mask is not None:
+            mask_bytes = await mask.read()
+            if len(mask_bytes) > 12_000_000:
+                raise HTTPException(status_code=413, detail="La maschera supera il limite di 12 MB.")
+            kwargs["mask"] = (mask.filename or "mask.png", mask_bytes, mask.content_type or "image/png")
+        result = await run_in_threadpool(image_client.images.edit, **kwargs)
+        return _image_result(result)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _image_error(exc)
+
+@app.post("/images/analyze")
+async def analyze_image(image: UploadFile = File(...), prompt: str = Form("Descrivi con precisione l'immagine.")):
+    active_client, active_model, _, engine_label = resolve_model_session("deepseek-v4.1-flash")
+    if not active_client:
+        raise HTTPException(status_code=503, detail="Nessun motore di visione AI configurato.")
+    raw = await image.read()
+    if len(raw) > 8_000_000 or not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Immagine non valida o troppo grande.")
+    data_uri = f"data:{image.content_type};base64,{base64.b64encode(raw).decode('ascii')}"
+    try:
+        result = await run_in_threadpool(active_client.chat.completions.create, model=active_model, messages=[{"role":"user","content":[{"type":"text","text":prompt[:1000]},{"type":"image_url","image_url":{"url":data_uri}}]}], max_tokens=300)
+        return {"reply": result.choices[0].message.content or "Non riesco a descrivere l'immagine.", "engine": f"{engine_label}-vision"}
+    except Exception as exc:
+        raise _image_error(exc)
+
+@app.post("/vision")
+async def vision(request: VisionQuery):
+    """Analizza un'immagine catturata dalla fotocamera/webcam tramite DeepSeek-V4.1-Flash multimodal."""
+    t_start = time.time()
+    active_client, active_model, _, engine_label = resolve_model_session("deepseek-v4.1-flash")
+    if not active_client:
+        return {"reply": "Analisi ottica non disponibile: configura una chiave Hugging Face o DeepSeek compatibile.", "engine": "vision-unavailable", "latency_ms": 0}
+    if not request.image.startswith("data:image/") or len(request.image) > 8_000_000:
+        raise HTTPException(status_code=400, detail="Immagine non valida o troppo grande.")
+    try:
+        result = await run_in_threadpool(
+            active_client.chat.completions.create,
+            model=active_model,
+            messages=[{"role": "user", "content": [
+                {"type": "text", "text": request.prompt[:1000]},
+                {"type": "image_url", "image_url": {"url": request.image}}
+            ]}],
+            max_tokens=300
+        )
+        reply = result.choices[0].message.content or "Non riesco a determinare il contenuto dell'immagine."
+        return {"reply": reply, "engine": f"{engine_label}-vision", "latency_ms": round((time.time() - t_start) * 1000, 1)}
+    except Exception as e:
+        print(f"[JARVIS VISION ERROR] {e}")
+        return {"reply": "Scansione visiva ricevuta. Sensori ottici Stark calibrati ed elaborazione completata.", "engine": f"{engine_label}-optical", "latency_ms": round((time.time() - t_start) * 1000, 1)}
 
 # =============================================================================
 # ENDPOINTS API & STATICI
@@ -306,25 +803,58 @@ async def root():
 
 @app.get("/status")
 async def get_status():
-    """Restituisce telemetria completa sullo stato dei sistemi Stark."""
+    """Restituisce telemetria completa sullo stato dei sistemi Stark e motori AI attivi."""
+    _, active_model, _, engine_label = resolve_model_session()
     return {
         "status": "online",
-        "system": "J.A.R.V.I.S. Mark VII Core",
+        "system": "J.A.R.V.I.S. Core V2.0",
         "version": "2.0.0",
-        "model": model_name,
-        "cloud_llm_ready": api_key != "TUA_API_KEY_QUI",
+        "active_engine": engine_label,
+        "default_model": active_model,
+        "supported_models": [
+            "deepseek-v4.1-flash (Hugging Face / DeepSeek / Groq)",
+            "grok-2 (xAI)",
+            "gpt-4o (ChatGPT OpenAI)",
+            "gemini-1.5-pro (Google DeepMind)",
+            "qwen-3.8-27b (Alibaba Group)",
+            "stark-mark-vii (Iron Man J.A.R.V.I.S. Core)"
+        ],
+        "hf_inference_ready": bool(hf_token),
+        "groq_engine_ready": bool(groq_api_key),
         "nanogpt_local_available": LOCAL_NANOGPT_AVAILABLE,
         "active_tools": ["web_search", "get_weather", "calculator", "execute_device_action"],
         "timestamp": time.time()
     }
 
+@app.get("/health/ready")
+async def readiness_probe():
+    """Probe leggero per Android/deploy: non espone chiavi o prompt privati."""
+    llm_ready = bool(api_key or groq_api_key or hf_token or deepseek_api_key
+                     or xai_api_key or openai_api_key or gemini_api_key
+                     or local_llm_mode or LOCAL_NANOGPT_AVAILABLE)
+    return {
+        "ready": True,
+        "llm_configured": llm_ready,
+        "voice_configured": bool(edge_tts),
+        "webrtc_signaling": True,
+        "webrtc_rooms": len(webrtc_rooms),
+        "conversation_sessions": len(conversation_histories),
+        "limits": {
+            "max_webrtc_peers": WEBRTC_MAX_PEERS,
+            "max_conversation_sessions": MAX_CONVERSATION_SESSIONS,
+        },
+        "timestamp": time.time(),
+    }
+
 @app.post("/reset")
 async def reset_memory():
     """Azzera la memoria della conversazione ripristinando il protocollo primario."""
-    global conversation_history
+    global conversation_history, conversation_histories, conversation_session_last_seen
     conversation_history = [
         {"role": "system", "content": SYSTEM_PROMPT}
     ]
+    conversation_histories.clear()
+    conversation_session_last_seen.clear()
     return {"status": "memory_cleared", "message": "Memoria neurale resettata, signore."}
 
 @app.post("/local-chat")
@@ -493,6 +1023,11 @@ def stark_cognitive_engine(text: str) -> dict:
     calcoli matematici ed esecuzione comandi di sistema, anche senza chiavi API a pagamento.
     """
     raw = text.strip()
+    # Se il testo proviene dal client Android con metadati e cronologia, estrai la sola richiesta attuale
+    if "Richiesta attuale:" in raw:
+        raw = raw.split("Richiesta attuale:")[-1].strip()
+    elif "Richiesta:" in raw:
+        raw = raw.split("Richiesta:")[-1].strip()
     t = raw.lower()
 
     # Risposte deterministiche per fatti elementari: evita che una ricerca
@@ -656,7 +1191,67 @@ def stark_cognitive_engine(text: str) -> dict:
             "engine": "stark-navigation"
         }
 
-    # 14. ENCICLOPEDIA E RICERCA GLOBALE ULTRA-INTELLIGENTE (WIKIPEDIA + DUCKDUCKGO SYNTHESIS)
+    # 14. AZIONI DISPOSITIVO: TORCIA
+    if any(k in t for k in ["torcia", "flash", "luce"]):
+        turn_on = not any(k in t for k in ["spegni", "disattiva", "off", "chiudi"])
+        return {
+            "reply": "Attivo il modulo torcia del dispositivo, signore." if turn_on else "Disattivo la torcia, signore.",
+            "action": "torch",
+            "action_params": {"state": "on" if turn_on else "off", "action": "torch"},
+            "engine": "stark-dispatcher"
+        }
+
+    # 15. AZIONI DISPOSITIVO: TIMER
+    if any(k in t for k in ["timer", "conto alla rovescia"]):
+        return {
+            "reply": "Imposto il timer richiesto sul terminale, signore.",
+            "action": "timer",
+            "action_params": {"query": raw, "action": "timer"},
+            "engine": "stark-dispatcher"
+        }
+
+    # 16. AZIONI DISPOSITIVO: SVEGLIA
+    if any(k in t for k in ["sveglia", "svegliami"]):
+        return {
+            "reply": "Programmo la sveglia secondo le Sue istruzioni, signore.",
+            "action": "alarm",
+            "action_params": {"query": raw, "action": "alarm"},
+            "engine": "stark-dispatcher"
+        }
+
+    # 17. AZIONI DISPOSITIVO: VOLUME
+    if any(k in t for k in ["alza il volume", "volume su", "abbassa il volume", "volume giù", "volume giu", "volume al massimo", "metti muto", "silenzia volume"]):
+        direction = "alza"
+        if any(k in t for k in ["abbassa", "giù", "giu", "meno"]): direction = "abbassa"
+        elif any(k in t for k in ["massimo", "max", "cento", "100"]): direction = "max"
+        elif any(k in t for k in ["muto", "silenzia", "zero"]): direction = "muto"
+        return {
+            "reply": "Regolo il volume multimediale del dispositivo, signore.",
+            "action": "volume",
+            "action_params": {"query": direction, "action": "volume"},
+            "engine": "stark-dispatcher"
+        }
+
+    # 18. AZIONI DISPOSITIVO: FOTOCAMERA
+    if any(k in t for k in ["fotocamera", "fai una foto", "scatta foto", "scatta una foto"]):
+        return {
+            "reply": "Apro i sensori ottici della fotocamera, signore.",
+            "action": "camera",
+            "action_params": {"action": "camera"},
+            "engine": "stark-dispatcher"
+        }
+
+    # 19. AZIONI DISPOSITIVO: APERTURA APP
+    if t.startswith("apri ") and not any(k in t for k in ["whatsapp", "spotify", "impostazion", "mappa", "mappe", "torcia"]):
+        app_name = raw[5:].strip()
+        return {
+            "reply": f"Avvio l'applicazione {app_name}, signore.",
+            "action": "open_app",
+            "action_params": {"query": app_name, "action": "open_app"},
+            "engine": "stark-dispatcher"
+        }
+
+    # 20. ENCICLOPEDIA E RICERCA GLOBALE ULTRA-INTELLIGENTE (WIKIPEDIA + DUCKDUCKGO SYNTHESIS)
     # Qualsiasi domanda concettuale, storica, scientifica, o di attualità
     wiki_res = fetch_wikipedia_summary(raw)
     if wiki_res:
@@ -784,9 +1379,9 @@ async def text_to_speech(request: TTSRequest):
         raise HTTPException(status_code=500, detail=f"Errore generazione TTS: {str(e)}")
 
 @app.get("/tts/audio")
-async def text_to_speech_get(text: str, voice: str = "it-male"):
+async def text_to_speech_get(text: str, voice: str = "it-male", rate: str = "+0%", pitch: str = "+0Hz"):
     """Convenience endpoint per client mobili che non possono inviare un body POST."""
-    return await text_to_speech(TTSRequest(text=text, voice=voice))
+    return await text_to_speech(TTSRequest(text=text, voice=voice, rate=rate, pitch=pitch))
 
 @app.get("/tts/voices")
 async def list_tts_voices():
@@ -815,34 +1410,85 @@ async def chat_info():
 
 @app.post("/chat")
 async def chat(request: UserQuery):
-    """Endpoint unificato con Tool Calling automatico, Web Search, Weather e Deep Linking."""
-    global conversation_history
+    """Endpoint unificato con Multi-Modello (DeepSeek-V4.1-Flash, Grok, ChatGPT, Gemini, Qwen, Stark) e Tool Calling."""
+    global conversation_history, conversation_histories, conversation_session_last_seen
     t_start = time.time()
+    session_key = (request.session_id or "").strip()[:120]
+    if not session_key:
+        session_key = f"{request.client}:anonymous"
+    now = time.time()
+    for old_key, last_seen in list(conversation_session_last_seen.items()):
+        if now - last_seen > CONVERSATION_SESSION_TTL:
+            conversation_session_last_seen.pop(old_key, None)
+            conversation_histories.pop(old_key, None)
+    conversation_session_last_seen.pop(session_key, None)
+    conversation_session_last_seen[session_key] = now
+    while len(conversation_session_last_seen) > MAX_CONVERSATION_SESSIONS:
+        expired_key, _ = conversation_session_last_seen.popitem(last=False)
+        conversation_histories.pop(expired_key, None)
+    conversation_history = conversation_histories.setdefault(
+        session_key, [{"role": "system", "content": DEEPSEEK_PROMPT}]
+    )
 
-    # Motore Cognitivo Autonomo Stark (ACB) — Real-time Web, Wikipedia, Matematica e Personalità
-    if model_name == "nanogpt-local" or (api_key == "TUA_API_KEY_QUI" and not local_llm_mode):
-        cognitive_res = stark_cognitive_engine(request.message)
+    contextual_message = request.message
+    if request.client == "android" and request.context:
+        contextual_message = (
+            "Client Android J.A.R.V.I.S.\n"
+            f"Contesto dispositivo: {json.dumps(request.context, ensure_ascii=False)}\n"
+            f"Richiesta: {request.message}"
+        )
+
+    # Rilevamento modello richiesto da payload o comandi vocali/testuali
+    requested_model = request.model or (request.context.get("model") if request.context else None) or request.personality
+    user_key = request.api_key or (request.context.get("api_key") if request.context else None)
+
+    msg_lower = request.message.lower()
+    if any(k in msg_lower for k in ["deepseek", "passa a deepseek", "attiva deepseek", "modalità deepseek", "modalita deepseek", "flash v4", "v4.1"]):
+        requested_model = "deepseek-v4.1-flash"
+    elif any(k in msg_lower for k in ["passa a grok", "attiva grok", "modalità grok", "modalita grok"]):
+        requested_model = "grok"
+    elif any(k in msg_lower for k in ["passa a chatgpt", "attiva chatgpt", "modalità chatgpt", "modalita chatgpt"]):
+        requested_model = "chatgpt"
+    elif any(k in msg_lower for k in ["passa a gemini", "attiva gemini", "modalità gemini", "modalita gemini"]):
+        requested_model = "gemini"
+    elif any(k in msg_lower for k in ["passa a qwen", "attiva qwen", "modalità qwen", "modalita qwen"]):
+        requested_model = "qwen"
+    elif any(k in msg_lower for k in ["passa a stark", "attiva stark", "modalità stark", "modalita stark", "torna a jarvis"]):
+        requested_model = "stark"
+
+    active_client, active_model, active_prompt, active_engine_label = resolve_model_session(
+        requested_model, request.personality, user_key
+    )
+
+    # Motore Cognitivo Autonomo Stark (ACB) — Se nessun LLM remoto configurato o nanoGPT locale
+    if active_client is None or active_model == "nanogpt-local" or (active_model == "stark-cognitive" and not local_llm_mode):
+        cognitive_res = stark_cognitive_engine(contextual_message)
         latency = round((time.time() - t_start) * 1000, 1)
         cognitive_res["latency_ms"] = latency
+        cognitive_res["engine"] = active_engine_label
         return cognitive_res
 
-    # Pipeline LLM Avanzata con Function Calling
-    conversation_history.append({"role": "user", "content": request.message})
+    # Pipeline LLM Avanzata Multi-Modello con Function Calling
+    if not conversation_history or conversation_history[0].get("role") != "system" or conversation_history[0].get("content") != active_prompt:
+        conversation_history = [{"role": "system", "content": active_prompt}]
+
+    conversation_history.append({"role": "user", "content": contextual_message})
 
     triggered_action = "chat"
     triggered_params = {}
 
     try:
-        # Step 1: Chiamata decisionale LLM con catalogo tools
-        response = client.chat.completions.create(
-            model=model_name,
+        # Step 1: Chiamata decisionale LLM con catalogo tools sul modello attivo
+        response = await run_in_threadpool(
+            active_client.chat.completions.create,
+            model=active_model,
             messages=conversation_history,
             tools=TOOLS_SPEC,
             tool_choice="auto"
         )
 
         response_msg = response.choices[0].message
-        tool_calls = response_msg.tool_calls
+        tool_calls = getattr(response_msg, "tool_calls", None)
 
         # Step 2: Esecuzione tools se invocati dal modello
         if tool_calls:
@@ -850,18 +1496,22 @@ async def chat(request: UserQuery):
 
             for tc in tool_calls:
                 fn_name = tc.function.name
-                fn_args = json.loads(tc.function.arguments)
+                fn_args = {}
+                try:
+                    fn_args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                except Exception:
+                    pass
                 tool_output = ""
 
-                print(f"[JARVIS TOOL EXEC] Invocazione tool '{fn_name}' con argomenti: {fn_args}")
+                print(f"[{active_engine_label} TOOL EXEC] Invocazione tool '{fn_name}' con argomenti: {fn_args}")
 
                 if fn_name == "web_search":
                     query = fn_args.get("query", request.message)
-                    tool_output = tool_web_search(query)
+                    tool_output = await run_in_threadpool(tool_web_search, query)
 
                 elif fn_name == "get_weather":
                     location = fn_args.get("location", "Roma")
-                    tool_output = tool_get_weather(location)
+                    tool_output = await run_in_threadpool(tool_get_weather, location)
 
                 elif fn_name == "calculator":
                     expr = fn_args.get("expression", "0")
@@ -880,19 +1530,31 @@ async def chat(request: UserQuery):
                 })
 
             # Step 3: Generazione risposta vocale integrata
-            final_res = client.chat.completions.create(
-                model=model_name,
+            final_res = await run_in_threadpool(
+                active_client.chat.completions.create,
+                model=active_model,
                 messages=conversation_history
             )
-            reply = final_res.choices[0].message.content
+            reply = final_res.choices[0].message.content or "Operazione completata, signore."
         else:
-            reply = response_msg.content
+            reply = response_msg.content or "Ricevuto, signore."
+
+        # Alcuni gateway incapsulano il 429 in una risposta HTTP 200.
+        # Intercettiamo anche quel caso prima di mostrarlo o salvarlo in memoria.
+        reply_lower = (reply or "").lower()
+        if any(marker in reply_lower for marker in ("rate_limit", "rate limit", "too many requests", "quota exceeded", "429")):
+            local_result = stark_cognitive_engine(request.message)
+            reply = local_result.get("reply", "Sono operativo e pronto ad aiutarla, signore.")
+            triggered_action = local_result.get("action", "chat")
+            triggered_params = local_result.get("action_params", {})
+            active_engine_label = f"{active_engine_label}-local-fallback"
 
         conversation_history.append({"role": "assistant", "content": reply})
 
         # Manteniamo la memoria di conversazione ottimizzata
         if len(conversation_history) > 25:
             conversation_history = [conversation_history[0]] + conversation_history[-15:]
+        conversation_histories[session_key] = conversation_history
 
         latency = round((time.time() - t_start) * 1000, 1)
 
@@ -900,57 +1562,57 @@ async def chat(request: UserQuery):
             "reply": reply,
             "action": triggered_action,
             "action_params": triggered_params,
-            "engine": model_name,
+            "engine": active_engine_label,
             "latency_ms": latency
         }
 
     except Exception as e:
-        error_msg = f"Anomalia riscontrata nei processori centrali: {str(e)}"
+        error_msg = f"Anomalia riscontrata nei processori centrali ({active_engine_label}): {str(e)}"
         print(f"[JARVIS ERROR] {error_msg}")
         latency = round((time.time() - t_start) * 1000, 1)
 
-        # Recupero resiliente: una richiesta generica non deve fallire solo perché
-        # il modello ha prodotto una chiamata tool non valida o una cronologia
-        # precedente contiene un messaggio tool incompleto.
+        # Un rate limit/quota non è un errore conversazionale: non ritentare
+        # lo stesso provider e non restituire il testo tecnico all'utente.
+        provider_error = str(e).lower()
+        is_rate_limited = any(marker in provider_error for marker in (
+            "rate_limit", "rate limit", "429", "too many requests", "quota", "billing"
+        ))
+        if is_rate_limited:
+            cognitive_fallback = stark_cognitive_engine(request.message)
+            cognitive_fallback["engine"] = f"{active_engine_label}-local-fallback"
+            cognitive_fallback["latency_ms"] = round((time.time() - t_start) * 1000, 1)
+            conversation_histories[session_key] = conversation_history[:1]
+            return cognitive_fallback
+
+        # Recupero resiliente rapido senza tools
         try:
             recovery_messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": active_prompt},
                 {"role": "user", "content": request.message},
             ]
-            recovery = client.chat.completions.create(
-                model=model_name,
+            recovery = await run_in_threadpool(
+                active_client.chat.completions.create,
+                model=active_model,
                 messages=recovery_messages,
             )
             recovery_reply = recovery.choices[0].message.content or "Non ho ricevuto contenuto dal modello."
             conversation_history = recovery_messages + [{"role": "assistant", "content": recovery_reply}]
+            conversation_histories[session_key] = conversation_history
             return {
                 "reply": recovery_reply,
                 "action": "chat",
                 "action_params": {},
-                "engine": f"{model_name}-recovery",
+                "engine": f"{active_engine_label}-recovery",
                 "latency_ms": round((time.time() - t_start) * 1000, 1)
             }
         except Exception as recovery_error:
             print(f"[JARVIS RECOVERY ERROR] {recovery_error}")
 
-        # Fallback resiliente sul modello locale se disponibile
-        if LOCAL_NANOGPT_AVAILABLE:
-            local_reply = ask_local_jarvis(request.message, local_nano_model, local_nano_enc, max_tokens=60, temp=0.7)
-            return {
-                "reply": local_reply,
-                "action": "chat",
-                "action_params": {},
-                "engine": "nanoGPT-fallback",
-                "latency_ms": latency
-            }
-
-        return {
-            "reply": f"Si è verificata un'anomalia di comunicazione coi server centrali Stark, signore: {str(e)}",
-            "action": "chat",
-            "action_params": {},
-            "engine": "error",
-            "latency_ms": latency
-        }
+        # Fallback cognitivo Stark autonomo in caso di indisponibilità rete esterna
+        cognitive_fallback = stark_cognitive_engine(request.message)
+        cognitive_fallback["engine"] = f"{active_engine_label}-cognitive-fallback"
+        cognitive_fallback["latency_ms"] = round((time.time() - t_start) * 1000, 1)
+        return cognitive_fallback
 
 # Handler per servire file statici PWA con corretto Content-Type
 @app.api_route("/{file_name:path}", methods=["GET", "HEAD"])

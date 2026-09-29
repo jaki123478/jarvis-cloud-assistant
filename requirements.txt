@@ -6,3 +6,5 @@ pydantic
 psutil
 python-dotenv
 edge-tts
+python-multipart
+twilio>=9.11.2

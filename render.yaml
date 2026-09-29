@@ -10,6 +10,24 @@ services:
       - key: LLM_API_KEY
         sync: false
       - key: LLM_MODEL
-    value: openai/gpt-oss-120b
-        - key: LLM_BASE_URL
-          value: https://api.groq.com/openai/v1
+        value: openai/gpt-oss-120b
+      - key: LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: IMAGE_PROVIDER
+        value: dashscope
+      - key: IMAGE_API_KEY
+        sync: false
+      - key: IMAGE_MODEL
+        value: wanx2.1-t2i-turbo
+      - key: IMAGE_EDIT_MODEL
+        value: wanx2.1-imageedit
+      - key: VOICE_PROVIDER
+        value: twilio
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
