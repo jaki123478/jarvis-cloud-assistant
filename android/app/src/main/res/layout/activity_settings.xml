@@ -192,6 +192,38 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="16dp"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="WAKE WORD HEY JARVIS"
+                android:textColor="#00E5FF"
+                android:textSize="13sp"
+                android:fontFamily="monospace" />
+
+            <Switch
+                android:id="@+id/settingWakeWord"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Ascolto continuo via SpeechRecognizer nel servizio in primo piano. Maggior consumo batteria. Poi premi CORE ON. Upgrade futuro: openWakeWord ONNX."
+            android:textColor="#507D8C"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

@@ -71,7 +71,19 @@ public class MainActivity extends Activity {
     private int speechRestartAttempts = 0;
     private PowerManager.WakeLock screenWakeLock;
     private boolean wakeLockUserEnabled = false;
+    private boolean wakeWordEnabled = false;
     private boolean sessionKeepAwake = false;
+    private volatile boolean ttsPlaying = false;
+    private long ttsCooldownUntilMs = 0L;
+    private static final long ECHO_COOLDOWN_MS = 1100L;
+    private final BroadcastReceiver wakeWordReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (intent == null) return;
+            if (JarvisForegroundService.ACTION_WAKE_DETECTED.equals(intent.getAction())) {
+                handleWakeDetected(intent);
+            }
+        }
+    };
     private static volatile boolean visible = false;
 
     public static boolean isAppVisible() { return visible; }
@@ -108,6 +120,7 @@ public class MainActivity extends Activity {
         memory = preferences.getString("conversation_memory", "");
         voiceEnabled = preferences.getBoolean("voice_enabled", true);
         wakeLockUserEnabled = preferences.getBoolean("wake_lock_enabled", false);
+        wakeWordEnabled = preferences.getBoolean(WakePhrase.PREF_WAKE_WORD_ENABLED, false);
         if (!preferences.contains("tts_engine")) {
             preferences.edit().putString("tts_engine", "edge-server").apply();
         }
@@ -165,6 +178,18 @@ public class MainActivity extends Activity {
             IntentFilter filter = new IntentFilter("com.giarvis.WHATSAPP_NOTIFICATION");
             ContextCompat.registerReceiver(this, whatsappReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         } catch (Exception ignored) {}
+        try {
+            IntentFilter wakeFilter = new IntentFilter(JarvisForegroundService.ACTION_WAKE_DETECTED);
+            ContextCompat.registerReceiver(this, wakeWordReceiver, wakeFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
+        } catch (Exception ignored) {}
+        // Best-effort pull of server persistent memory (404 = endpoint not ready yet).
+        try {
+            MemoryApiClient.pull(this, getBackendUrl(), sessionId, (ok, body) -> {
+                if (ok && preferences != null) {
+                    memory = preferences.getString("conversation_memory", memory);
+                }
+            });
+        } catch (Exception ignored) {}
 
         new Handler().postDelayed(this::offerNotificationAccess, 900);
     }
@@ -192,8 +217,9 @@ public class MainActivity extends Activity {
 
         startCore.setOnClickListener(v -> startJarvisService());
         stopCore.setOnClickListener(v -> {
+            if (preferences != null) preferences.edit().putBoolean("jarvis_core_wanted", false).apply();
             stopService(new Intent(this, JarvisForegroundService.class));
-            status.setText("CORE // PAUSED");
+            status.setText(standbyStatusText());
         });
 
         send.setOnClickListener(v -> {
@@ -229,17 +255,74 @@ public class MainActivity extends Activity {
     }
 
     private void startJarvisService() {
+        wakeWordEnabled = preferences != null && preferences.getBoolean(WakePhrase.PREF_WAKE_WORD_ENABLED, false);
+        if (preferences != null) preferences.edit().putBoolean("jarvis_core_wanted", true).apply();
         Intent service = new Intent(this, JarvisForegroundService.class).setAction(JarvisForegroundService.ACTION_START);
         try {
             if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(service);
             else startService(service);
+            if (status != null) {
+                status.setText(wakeWordEnabled
+                        ? "CORE // ASCOLTO WAKE (HEY JARVIS)"
+                        : "CORE // ONLINE (TAP MIC O ABILITA WAKE)");
+            }
+        } catch (Exception ignored) {
+            if (status != null) status.setText("CORE // AVVIO FALLITO");
+        }
+    }
+
+    private String standbyStatusText() {
+        return wakeWordEnabled
+                ? "STANDBY // DI' HEY JARVIS O TOCCA"
+                : "STANDBY // TOCCA PER PARLARE";
+    }
+
+    private void notifyWakeSessionBusy() {
+        try {
+            Intent i = new Intent(this, JarvisForegroundService.class).setAction(JarvisForegroundService.ACTION_WAKE_PAUSE);
+            if (lastSpokenText != null && !lastSpokenText.isEmpty()) {
+                i.putExtra(JarvisForegroundService.EXTRA_ECHO_TEXT, lastSpokenText);
+            }
+            startService(i);
         } catch (Exception ignored) {}
+    }
+
+    private void notifyWakeSessionIdle() {
+        if (!wakeWordEnabled) return;
+        if (preferences == null || !preferences.getBoolean("jarvis_core_wanted", false)) return;
+        try {
+            Intent i = new Intent(this, JarvisForegroundService.class).setAction(JarvisForegroundService.ACTION_WAKE_RESUME);
+            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+            else startService(i);
+        } catch (Exception ignored) {}
+    }
+
+    private void handleWakeDetected(Intent intent) {
+        if (destroyed) return;
+        String command = intent == null ? "" : intent.getStringExtra(JarvisForegroundService.EXTRA_COMMAND);
+        if (command == null) command = "";
+        command = command.trim();
+        if (status != null) status.setText("WAKE // HEY JARVIS RILEVATO");
+        if (!command.isEmpty()) {
+            notifyWakeSessionBusy();
+            if (input != null) input.setText(command);
+            handleUserCommand(command);
+        } else {
+            listen();
+        }
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (intent != null && JarvisForegroundService.ACTION_LISTEN.equals(intent.getAction())) listen();
+        setIntent(intent);
+        if (intent == null) return;
+        String action = intent.getAction();
+        if (JarvisForegroundService.ACTION_WAKE_DETECTED.equals(action)) {
+            handleWakeDetected(intent);
+        } else if (JarvisForegroundService.ACTION_LISTEN.equals(action)) {
+            listen();
+        }
     }
 
     @Override
@@ -334,7 +417,8 @@ public class MainActivity extends Activity {
         boolean online = nc != null && nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
         long free = getFilesDir().getFreeSpace() / 1024 / 1024;
         String wake = (wakeLockUserEnabled || sessionKeepAwake) ? "ON" : "OFF";
-        deviceStatus.setText("DEVICE  // BATTERIA: " + (battery < 0 ? "N/D" : battery + "%") + "   RETE: " + (online ? "ONLINE" : "OFFLINE") + "   WAKE: " + wake + "   LIBERO: " + free + " MB");
+        String ww = wakeWordEnabled ? "ON" : "OFF";
+        deviceStatus.setText("DEVICE  // BATTERIA: " + (battery < 0 ? "N/D" : battery + "%") + "   RETE: " + (online ? "ONLINE" : "OFFLINE") + "   WAKE: " + wake + "   WW: " + ww + "   LIBERO: " + free + " MB");
     }
 
     private void askUserName() {
@@ -362,7 +446,7 @@ public class MainActivity extends Activity {
                 userName = value;
                 preferences.edit().putString("user_name", userName).apply();
                 status.setText("ONLINE // PRONTO, " + userName.toUpperCase(Locale.ROOT));
-                transcript.setText("// FEED ATTIVITÀ  // MISSION LOG\nJ.A.R.V.I.S. online. Benvenuto, " + userName + ".\nTocca il reattore o il microfono per parlare.");
+                transcript.setText("// FEED ATTIVITA  // MISSION LOG\nJ.A.R.V.I.S. online. Benvenuto, " + userName + ".\nDi' Hey Jarvis (se wake ON) oppure tocca il microfono.");
                 dialog.dismiss();
             });
         });
@@ -378,7 +462,7 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == 10) {
             boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
-            status.setText(granted ? "STANDBY // TOCCA PER PARLARE" : "PERMESSO MICROFONO NEGATO");
+            status.setText(granted ? standbyStatusText() : "PERMESSO MICROFONO NEGATO");
         }
         updatePrivacyStatus();
     }
@@ -399,9 +483,26 @@ public class MainActivity extends Activity {
         String lower = message.toLowerCase(Locale.ROOT);
         if (lower.contains("cancella memoria") || lower.contains("dimentica tutto")) {
             memory = "";
+            String keepSession = sessionId;
+            String keepBackend = getBackendUrl();
+            boolean keepWakeWord = preferences.getBoolean(WakePhrase.PREF_WAKE_WORD_ENABLED, false);
+            boolean keepCore = preferences.getBoolean("jarvis_core_wanted", false);
+            boolean keepVoice = preferences.getBoolean("voice_enabled", true);
             preferences.edit().clear().apply();
-            transcript.setText("J.A.R.V.I.S. // PRIVACY\n\nMemoria, personalità e dati locali cancellati.");
-            speakMetal("Memoria locale cancellata.");
+            // Restore identity + wake toggles; conversational memory wiped.
+            SharedPreferences.Editor ed = preferences.edit();
+            if (keepSession != null && !keepSession.isEmpty()) {
+                ed.putString("assistant_session_id", keepSession);
+                sessionId = keepSession;
+            }
+            ed.putBoolean(WakePhrase.PREF_WAKE_WORD_ENABLED, keepWakeWord);
+            ed.putBoolean("jarvis_core_wanted", keepCore);
+            ed.putBoolean("voice_enabled", keepVoice);
+            ed.apply();
+            wakeWordEnabled = keepWakeWord;
+            MemoryApiClient.resetServer(keepBackend, keepSession);
+            transcript.setText("J.A.R.V.I.S. // PRIVACY\n\nMemoria locale e server (best-effort) cancellate.");
+            speakMetal("Memoria cancellata.");
             return;
         }
         if (lower.contains("cosa ho oggi") || lower.contains("appuntamenti di oggi")) {
@@ -562,6 +663,7 @@ public class MainActivity extends Activity {
             status.setText("VOCE NON DISPONIBILE");
             return;
         }
+        notifyWakeSessionBusy();
         if (recognizer != null) {
             try { recognizer.cancel(); } catch (Exception ignored) {}
             recognizer.destroy();
@@ -573,7 +675,7 @@ public class MainActivity extends Activity {
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(new RecognitionListener() {
             public void onReadyForSpeech(Bundle b) {
-                status.setText("ASCOLTO // TOCCA ATTIVO, PARLA ADESSO");
+                status.setText("SESSIONE // MICROFONO ATTIVO, PARLA");
                 if (reactor != null) reactor.setActive(true);
             }
             public void onResults(Bundle b) {
@@ -583,8 +685,14 @@ public class MainActivity extends Activity {
                 speechRestartAttempts = 0;
                 if (r != null && !r.isEmpty()) {
                     String spoken = r.get(0) == null ? "" : r.get(0).trim();
-                    String command = stripWakePhrase(spoken);
-                    if (command.isEmpty() && containsWakePhrase(spoken)) {
+                    if (isEchoSuppressed() || looksLikeOwnTts(spoken)) {
+                        if (reactor != null) reactor.setActive(false);
+                        status.setText(standbyStatusText());
+                        endVoiceSessionKeepAwake();
+                        return;
+                    }
+                    String command = WakePhrase.stripWake(spoken);
+                    if (command.isEmpty() && WakePhrase.containsWake(spoken)) {
                         status.setText("SESSIONE // CONTINUA A PARLARE");
                         speechResultReceived = false;
                         speechRestartAttempts = 0;
@@ -596,7 +704,7 @@ public class MainActivity extends Activity {
                     handleUserCommand(command.isEmpty() ? spoken : command);
                 } else {
                     if (reactor != null) reactor.setActive(false);
-                    status.setText("STANDBY // TOCCA PER PARLARE");
+                    status.setText(standbyStatusText());
                     endVoiceSessionKeepAwake();
                 }
             }
@@ -610,7 +718,7 @@ public class MainActivity extends Activity {
                     status.setText("MICROFONO // RIPRISTINO " + speechRestartAttempts + "/3");
                     speechHandler.postDelayed(() -> restartSpeechListening(), 450L * speechRestartAttempts);
                 } else {
-                    status.setText("STANDBY // TOCCA PER PARLARE");
+                    status.setText(standbyStatusText());
                     endVoiceSessionKeepAwake();
                 }
             }
@@ -635,6 +743,7 @@ public class MainActivity extends Activity {
 
     private void restartSpeechListening() {
         if (destroyed || !speechListening && speechResultReceived) return;
+        if (isEchoSuppressed()) return;
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return;
         try {
             if (recognizer != null) recognizer.cancel();
@@ -647,20 +756,17 @@ public class MainActivity extends Activity {
                     .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3));
         } catch (Exception e) {
             speechListening = false;
-            status.setText("STANDBY // TOCCA PER PARLARE");
+            status.setText(standbyStatusText());
             endVoiceSessionKeepAwake();
         }
     }
 
     private boolean containsWakePhrase(String text) {
-        String normalized = text.toLowerCase(Locale.ROOT).replaceAll("[^a-zàèéìòù ]", " ").trim();
-        return normalized.equals("jarvis") || normalized.equals("ehi jarvis")
-                || normalized.equals("hey jarvis") || normalized.equals("j a r v i s");
+        return WakePhrase.containsWake(text);
     }
 
     private String stripWakePhrase(String text) {
-        if (text == null) return "";
-        return text.trim().replaceFirst("(?i)^(?:ehi|hey)?\\s*j[. ]*a[. ]*r[. ]*v[. ]*i[. ]*s(?:[,;:]?\\s*)", "").trim();
+        return WakePhrase.stripWake(text);
     }
 
     private void probeBackendHealth() {
@@ -773,6 +879,7 @@ public class MainActivity extends Activity {
                 if (updated.length() > 6000) updated = updated.substring(updated.length() - 6000);
                 memory = updated;
                 preferences.edit().putString("conversation_memory", memory).apply();
+                MemoryApiClient.push(MainActivity.this, getBackendUrl(), sessionId, memory);
 
                 final String resolvedValue = value;
                 final String resolvedEngine = engineName;
@@ -917,6 +1024,7 @@ public class MainActivity extends Activity {
             String fact = message.substring(message.toLowerCase(Locale.ROOT).indexOf("ricordati che ") + 13).trim();
             memory = (memory + "\nFATTO: " + fact).trim();
             preferences.edit().putString("conversation_memory", memory).apply();
+            MemoryApiClient.push(this, getBackendUrl(), sessionId, memory);
             speakMetal("Memorizzato, signore.");
             return true;
         }
@@ -984,6 +1092,51 @@ public class MainActivity extends Activity {
     }
 
 
+    private void beginTtsPlayback(String text) {
+        ttsPlaying = true;
+        ttsCooldownUntilMs = 0L;
+        if (text != null && !text.trim().isEmpty()) lastSpokenText = text.trim();
+        notifyWakeSessionBusy();
+        // Stop any leftover command recognizer so we don't hear ourselves.
+        if (speechListening) {
+            speechListening = false;
+            try {
+                if (recognizer != null) recognizer.cancel();
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void endTtsPlayback() {
+        ttsPlaying = false;
+        ttsCooldownUntilMs = System.currentTimeMillis() + ECHO_COOLDOWN_MS;
+        // Resume wake only after short cooldown so trailing audio isn't picked up.
+        speechHandler.postDelayed(() -> {
+            if (!destroyed && !ttsPlaying && !speechListening) {
+                notifyWakeSessionIdle();
+            }
+        }, ECHO_COOLDOWN_MS);
+    }
+
+    private boolean isEchoSuppressed() {
+        return ttsPlaying || System.currentTimeMillis() < ttsCooldownUntilMs;
+    }
+
+    /** True if recognized text looks like our own TTS (anti-echo). */
+    private boolean looksLikeOwnTts(String spoken) {
+        if (spoken == null || spoken.trim().isEmpty() || lastSpokenText == null || lastSpokenText.isEmpty()) {
+            return false;
+        }
+        String a = WakePhrase.normalize(spoken);
+        String b = WakePhrase.normalize(lastSpokenText);
+        if (a.isEmpty() || b.isEmpty()) return false;
+        if (a.equals(b)) return true;
+        if (b.contains(a) && a.length() >= 8) return true;
+        if (a.contains(b) && b.length() >= 8) return true;
+        // Prefix overlap for long answers partially captured
+        int n = Math.min(24, Math.min(a.length(), b.length()));
+        return n >= 12 && a.regionMatches(0, b, 0, n);
+    }
+
     private void stopVoice() {
         try {
             if (speaker != null) speaker.stop();
@@ -995,6 +1148,8 @@ public class MainActivity extends Activity {
                 voicePlayer = null;
             }
         } catch (Exception ignored) {}
+        ttsPlaying = false;
+        ttsCooldownUntilMs = System.currentTimeMillis() + 400L;
         if (status != null) status.setText("VOCE // INTERROTTA");
         endVoiceSessionKeepAwake();
     }
@@ -1035,9 +1190,13 @@ public class MainActivity extends Activity {
         if (!voiceEnabled) return;
         lastSpokenText = text.trim();
         beginVoiceSessionKeepAwake();
+        beginTtsPlayback(text);
         if (shouldUseEdgeTts()) {
             if (status != null) status.setText("VOCE // EDGE NEURAL TTS");
-            playCloudVoice(text, this::endVoiceSessionKeepAwake);
+            playCloudVoice(text, () -> {
+                endTtsPlayback();
+                endVoiceSessionKeepAwake();
+            });
             return;
         }
         speakNativeMetal(text);
@@ -1053,13 +1212,17 @@ public class MainActivity extends Activity {
             return;
         }
         lastSpokenText = text.trim();
+        beginTtsPlayback(text);
         if (status != null) status.setText("VOCE // NATIVA");
         String[] parts = text.trim().split("(?<=[.!?])\\s+");
         for (int i = 0; i < parts.length; i++) {
             speaker.speak(parts[i].trim(), i == 0 ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD, null, "jarvis-natural-" + i);
         }
         long approxMs = Math.max(1400L, Math.min(20000L, text.trim().length() * 55L));
-        new Handler(Looper.getMainLooper()).postDelayed(this::endVoiceSessionKeepAwake, approxMs);
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            endTtsPlayback();
+            endVoiceSessionKeepAwake();
+        }, approxMs);
     }
 
     private void beginVoiceSessionKeepAwake() {
@@ -1071,6 +1234,9 @@ public class MainActivity extends Activity {
         if (speechListening) return;
         sessionKeepAwake = false;
         applyScreenWakePolicy();
+        if (!isEchoSuppressed()) {
+            notifyWakeSessionIdle();
+        }
     }
 
     private void applyScreenWakePolicy() {
@@ -1111,10 +1277,12 @@ public class MainActivity extends Activity {
     }
 
     private void showHelpDialog() {
-        String helpHtml = "<b>🎙️ VOCE</b><br>"
-                + "• Tocca il reattore o il microfono per parlare (tap-to-talk). Non c'è ascolto continuo in background.<br>"
-                + "• Con rete ONLINE la voce predefinita è Edge Neural TTS (come la PWA); offline usa TTS nativo.<br>"
-                + "• Attiva <i>Wake Lock</i> nelle impostazioni per tenere lo schermo acceso.<br><br>"
+        String helpHtml = "<b>VOCE</b><br>"
+                + "• Tap-to-talk: tocca reattore o microfono (sempre disponibile).<br>"
+                + "• Wake word always-on (opzionale): Impostazioni → <i>Wake Word Hey Jarvis</i>, poi CORE ON. Di' <i>Hey Jarvis</i> / <i>Jarvis</i> senza toccare. Usa SpeechRecognizer in un Foreground Service (non openWakeWord ancora).<br>"
+                + "• HUD: <i>ASCOLTO WAKE</i> = in attesa della parola; <i>SESSIONE</i> = microfono comando attivo.<br>"
+                + "• Con rete ONLINE la voce predefinita è Edge Neural TTS; offline usa TTS nativo.<br>"
+                + "• <i>Wake Lock</i> schermo (impostazioni) è separato dal wake word mic.<br><br>"
                 + "<b>📱 CONTROLLI HARDWARE</b><br>"
                 + "• <i>'Accendi la torcia'</i> / <i>'Spegni torcia'</i><br>"
                 + "• <i>'Alza il volume'</i> / <i>'Abbassa il volume'</i> / <i>'Volume al massimo'</i> / <i>'Metti muto'</i><br>"
@@ -1615,6 +1783,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 try {
+                    beginTtsPlayback(text);
                     p.start();
                 } catch (Exception ignored) {
                     speakNativeMetal(text);
@@ -1622,6 +1791,7 @@ public class MainActivity extends Activity {
                 }
             });
             player.setOnCompletionListener(p -> {
+                endTtsPlayback();
                 if (afterVoice != null) afterVoice.run();
                 endVoiceSessionKeepAwake();
             });
@@ -1673,6 +1843,12 @@ public class MainActivity extends Activity {
         speechHandler.removeCallbacksAndMessages(null);
         try {
             unregisterReceiver(whatsappReceiver);
+        } catch (Exception ignored) {}
+        try {
+            unregisterReceiver(wakeWordReceiver);
+        } catch (Exception ignored) {}
+        try {
+            notifyWakeSessionIdle();
         } catch (Exception ignored) {}
         try {
             if (webRtcManager != null) webRtcManager.stop();
@@ -1727,6 +1903,17 @@ public class MainActivity extends Activity {
             userName = preferences.getString("user_name", userName);
             voiceEnabled = preferences.getBoolean("voice_enabled", voiceEnabled);
             wakeLockUserEnabled = preferences.getBoolean("wake_lock_enabled", wakeLockUserEnabled);
+            boolean wasWake = wakeWordEnabled;
+            wakeWordEnabled = preferences.getBoolean(WakePhrase.PREF_WAKE_WORD_ENABLED, false);
+            if (wasWake != wakeWordEnabled && preferences.getBoolean("jarvis_core_wanted", false)) {
+                // Refresh FGS so it picks up the new wake preference (only if CORE ON).
+                Intent refresh = new Intent(this, JarvisForegroundService.class).setAction(JarvisForegroundService.ACTION_START);
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(refresh);
+                    else startService(refresh);
+                } catch (Exception ignored) {}
+            }
+            updateDeviceStatus();
         }
         applyScreenWakePolicy();
     }

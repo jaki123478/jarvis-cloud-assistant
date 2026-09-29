@@ -1,6 +1,7 @@
 package com.giarvis.app;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -9,7 +10,7 @@ import android.widget.*;
 public class SettingsActivity extends Activity {
     private EditText userName, phone, backendUrl, apiKeyInput;
     private Spinner modelSpinner, personality;
-    private Switch voice, wakeLock;
+    private Switch voice, wakeLock, wakeWord;
     private Spinner ttsEngine, edgeVoice;
     private SeekBar speed;
     private SharedPreferences prefs;
@@ -60,6 +61,7 @@ public class SettingsActivity extends Activity {
         personality = findViewById(R.id.settingPersonality);
         voice = findViewById(R.id.settingVoice);
         wakeLock = findViewById(R.id.settingWakeLock);
+        wakeWord = findViewById(R.id.settingWakeWord);
         ttsEngine = findViewById(R.id.settingTtsEngine);
         edgeVoice = findViewById(R.id.settingEdgeVoice);
         speed = findViewById(R.id.settingSpeed);
@@ -82,6 +84,7 @@ public class SettingsActivity extends Activity {
         apiKeyInput.setText(prefs.getString("custom_api_key", ""));
         voice.setChecked(prefs.getBoolean("voice_enabled", true));
         wakeLock.setChecked(prefs.getBoolean("wake_lock_enabled", false));
+        wakeWord.setChecked(prefs.getBoolean(WakePhrase.PREF_WAKE_WORD_ENABLED, false));
         speed.setProgress(prefs.getInt("voice_speed", 50));
 
         ArrayAdapter<String> ttsAdapter = new ArrayAdapter<>(this,
@@ -186,6 +189,7 @@ public class SettingsActivity extends Activity {
         editor.putString("personality", personality.getSelectedItem().toString());
         editor.putBoolean("voice_enabled", voice.isChecked());
         editor.putBoolean("wake_lock_enabled", wakeLock.isChecked());
+        editor.putBoolean(WakePhrase.PREF_WAKE_WORD_ENABLED, wakeWord.isChecked());
         editor.putInt("voice_speed", speed.getProgress());
         int ttsPos = ttsEngine.getSelectedItemPosition();
         if (ttsPos >= 0 && ttsPos < TTS_ENGINE_KEYS.length) {
@@ -198,6 +202,13 @@ public class SettingsActivity extends Activity {
         editor.apply();
 
         Toast.makeText(this, "Configurazione salvata con successo", Toast.LENGTH_SHORT).show();
+        if (prefs.getBoolean("jarvis_core_wanted", false)) {
+            try {
+                Intent refresh = new Intent(this, JarvisForegroundService.class).setAction(JarvisForegroundService.ACTION_START);
+                if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(refresh);
+                else startService(refresh);
+            } catch (Exception ignored) {}
+        }
         finish();
     }
 }

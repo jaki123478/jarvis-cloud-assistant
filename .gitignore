@@ -25,3 +25,5 @@ android/third_party/llama.cpp/
 # Misc
 *.png
 kar-ganap-jarvis/
+# Persistent user memory vault (session facts)
+data/memory/*.json

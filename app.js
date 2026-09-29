@@ -45,6 +45,13 @@
     lastTranscript: '',
     watchdogInterval: null,
     reconnectTimer: null,
+    // Anti-echo: ignore STT while TTS plays + short cooldown after
+    echoGuardUntil: 0,
+    sttPausedForTts: false,
+
+    // Memory Vault (server-side facts mirrored in HUD)
+    memoryFacts: [],
+    memoryCount: 0,
 
     // Settings (persisted in localStorage)
     settings: {
@@ -176,7 +183,15 @@
     testVoiceBtn: document.getElementById('test-voice-btn'),
     testFxBtn: document.getElementById('test-fx-btn'),
     btnTestSpeaker: document.getElementById('btn-test-speaker'),
-    jarvisAudioPlayer: document.getElementById('jarvis-audio-player')
+    jarvisAudioPlayer: document.getElementById('jarvis-audio-player'),
+    // Memory Vault UI
+    diagAntiEchoState: document.getElementById('diag-antiecho-state'),
+    diagMemoryCount: document.getElementById('diag-memory-count'),
+    memoryFactsList: document.getElementById('memory-facts-list'),
+    memoryFactInput: document.getElementById('memory-fact-input'),
+    memoryAddBtn: document.getElementById('memory-add-btn'),
+    memoryRefreshBtn: document.getElementById('memory-refresh-btn'),
+    memoryClearBtn: document.getElementById('memory-clear-btn')
   };
 
   // =========================================================================
@@ -198,6 +213,7 @@
     try { registerServiceWorker(); } catch (e) { console.error('[JARVIS INIT] registerServiceWorker error:', e); }
     try { initVisionScanner(); } catch (e) { console.error('[JARVIS INIT] initVisionScanner error:', e); }
     try { bindEvents(); } catch (e) { console.error('[JARVIS INIT] bindEvents error:', e); }
+    try { refreshMemoryVault(); } catch (e) { console.warn('[JARVIS INIT] memory vault:', e); }
     try { updateUIStatus('STANDBY'); } catch (e) { console.error('[JARVIS INIT] updateUIStatus error:', e); }
   }
 
@@ -460,6 +476,122 @@
       localStorage.setItem(key, id);
     }
     return id;
+  }
+
+  function memoryApiBase() {
+    return resolveBackendEndpoint().replace(/\/chat\/?$/, '');
+  }
+
+  function updateAntiEchoHUD(active) {
+    if (DOM.diagAntiEchoState) {
+      DOM.diagAntiEchoState.textContent = active ? 'ATTIVO (STT IN PAUSA)' : 'STANDBY';
+      DOM.diagAntiEchoState.style.color = active ? '#ffaa00' : '';
+    }
+  }
+
+  function isEchoGuarded() {
+    return state.isSpeaking || state.sttPausedForTts || Date.now() < (state.echoGuardUntil || 0);
+  }
+
+  function pauseSttForTts(extraMs = 600) {
+    state.sttPausedForTts = true;
+    state.echoGuardUntil = Math.max(state.echoGuardUntil || 0, Date.now() + extraMs);
+    updateAntiEchoHUD(true);
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = null;
+    }
+    if (state.recognition && state.isSpeechActive) {
+      try { state.recognition.abort(); } catch (e) {}
+    }
+  }
+
+  function resumeSttAfterTts(cooldownMs = 550) {
+    state.sttPausedForTts = false;
+    state.echoGuardUntil = Date.now() + cooldownMs;
+    updateAntiEchoHUD(Date.now() < state.echoGuardUntil);
+    window.setTimeout(() => {
+      updateAntiEchoHUD(isEchoGuarded());
+      if (state.settings.continuousRec && micPermissionGranted && !state.isSpeaking && !state.sttPausedForTts) {
+        startListeningStream();
+      }
+    }, cooldownMs + 40);
+  }
+
+  function renderMemoryFacts(facts) {
+    state.memoryFacts = Array.isArray(facts) ? facts : [];
+    state.memoryCount = state.memoryFacts.length;
+    if (DOM.diagMemoryCount) {
+      DOM.diagMemoryCount.textContent = String(state.memoryCount);
+    }
+    if (!DOM.memoryFactsList) return;
+    if (!state.memoryFacts.length) {
+      DOM.memoryFactsList.innerHTML = '<li class="memory-empty">Nessun fatto salvato. Di&apos; &laquo;ricorda &hellip;&raquo; oppure aggiungi sotto.</li>';
+      return;
+    }
+    DOM.memoryFactsList.innerHTML = state.memoryFacts.map((f) => {
+      const id = (f.id || '').replace(/"/g, '');
+      const text = String(f.text || '').replace(/[<>&]/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+      return `<li class="memory-fact-item" data-id="${id}"><span class="memory-fact-text">${text}</span><button type="button" class="memory-forget-btn" data-id="${id}" title="Dimentica">×</button></li>`;
+    }).join('');
+  }
+
+  async function refreshMemoryVault() {
+    try {
+      const url = `${memoryApiBase()}/memory?session_id=${encodeURIComponent(getClientSessionId())}&client=web`;
+      const res = await fetch(url, { method: 'GET' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderMemoryFacts(data.facts || []);
+      return data;
+    } catch (err) {
+      console.warn('[JARVIS] Memory vault refresh failed:', err);
+      if (DOM.memoryFactsList) {
+        DOM.memoryFactsList.innerHTML = '<li class="memory-empty">Vault non raggiungibile (server offline?).</li>';
+      }
+      return null;
+    }
+  }
+
+  async function addMemoryFact(text) {
+    const fact = (text || '').trim();
+    if (fact.length < 2) return;
+    const res = await fetch(`${memoryApiBase()}/memory`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: getClientSessionId(), client: 'web', fact, source: 'pwa-ui' })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderMemoryFacts((data.vault && data.vault.facts) || []);
+    return data;
+  }
+
+  async function forgetMemoryFact(factId, query) {
+    const body = { session_id: getClientSessionId(), client: 'web' };
+    if (factId) body.fact_id = factId;
+    if (query) body.query = query;
+    const res = await fetch(`${memoryApiBase()}/memory/forget`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderMemoryFacts((data.vault && data.vault.facts) || []);
+    return data;
+  }
+
+  async function clearMemoryVault() {
+    const res = await fetch(`${memoryApiBase()}/memory/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: getClientSessionId(), client: 'web' })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderMemoryFacts((data.vault && data.vault.facts) || []);
+    return data;
   }
 
   // =========================================================================
@@ -1397,7 +1529,11 @@
     };
 
     recognition.onresult = (event) => {
-      if (state.isSpeaking) return;
+      // Anti-echo critico: ignora STT mentre TTS parla o durante cooldown
+      if (isEchoGuarded()) {
+        updateAntiEchoHUD(true);
+        return;
+      }
 
       let interimTranscript = '';
       let finalTranscript = '';
@@ -1446,10 +1582,10 @@
       DOM.diagMicState.textContent = micPermissionGranted ? 'STANDBY' : 'PERMESSO NEGATO';
 
       if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
-      if (micPermissionGranted && state.settings.continuousRec && !state.isSpeaking) {
+      if (micPermissionGranted && state.settings.continuousRec && !isEchoGuarded()) {
         state.reconnectTimer = setTimeout(() => {
-          startListeningStream();
-        }, 300);
+          if (!isEchoGuarded()) startListeningStream();
+        }, 350);
       }
     };
 
@@ -1526,14 +1662,22 @@
     }
     state.isSpeaking = false;
     state.speechPulseValue = 0;
+    // User barge-in: drop echo guard quickly so they can speak again
+    state.sttPausedForTts = false;
+    state.echoGuardUntil = Date.now() + 280;
+    updateAntiEchoHUD(true);
+    window.setTimeout(() => {
+      updateAntiEchoHUD(false);
+      if (state.settings.continuousRec && micPermissionGranted) startListeningStream();
+    }, 300);
   }
 
   function startListeningStream() {
-    if (state.recognition && !state.isSpeechActive && !state.isSpeaking) {
+    if (state.recognition && !state.isSpeechActive && !isEchoGuarded()) {
       try {
         state.recognition.start();
       } catch (err) {
-        // Già avviato o in transizione
+        // Already started or transitioning
       }
     }
   }
@@ -1777,6 +1921,8 @@
   async function speak(text) {
     if (!text) return;
     unlockAudio();
+    // Anti-echo: stop STT before any TTS audio leaves the speakers
+    pauseSttForTts(Math.min(12000, 800 + String(text).length * 45));
     state.isSpeaking = true;
     updateUIStatus('SPEAKING');
 
@@ -1797,6 +1943,7 @@
       state.speechPulseValue = 0;
       state.isSpeaking = false;
       updateUIStatus('STANDBY');
+      resumeSttAfterTts(550);
     };
 
     // Option 1: ElevenLabs API (se esplicitamente selezionato con API key valida)
@@ -1810,9 +1957,14 @@
       }
     }
 
-    // Option 2: Microsoft Edge Neural TTS Server (Motore Predefinito Studio ad altissima qualità)
+    // Option 2: Microsoft Edge Neural TTS — sentence pipeline (progressive voice)
     try {
-      await speakWithEdgeTTS(text);
+      const chunks = chunkTextForTTS(text, 140);
+      if (chunks.length > 1) {
+        await speakSentencesProgressive(chunks, speakWithEdgeTTS);
+      } else {
+        await speakWithEdgeTTS(text);
+      }
       finishSpeaking();
       return;
     } catch (err) {
@@ -1877,6 +2029,17 @@
    * Riproduzione tramite Web Audio API (invia l'audio all'analizzatore FFT del Reattore)
    * con fallback automatico su elemento <audio> persistente nel DOM.
    */
+  async function speakSentencesProgressive(sentences, speakOne) {
+    for (let i = 0; i < sentences.length; i++) {
+      if (!state.isSpeaking && !isSpeakingQueue) break;
+      const s = sentences[i];
+      if (!s || !String(s).trim()) continue;
+      // Extend echo guard for remaining audio
+      pauseSttForTts(800 + String(s).length * 50);
+      await speakOne(s);
+    }
+  }
+
   async function speakWithEdgeTTS(text) {
     const baseEndpoint = resolveBackendEndpoint();
     const ttsUrl = `${baseEndpoint.replace('/chat', '')}/tts`;
@@ -2066,50 +2229,149 @@
     updateUIStatus('PROCESSING');
 
     const baseEndpoint = resolveBackendEndpoint();
-    const route = '/chat';
-    const serverUrl = `${baseEndpoint}${route}`;
+    const serverUrl = `${baseEndpoint}/chat/stream`;
+    const fallbackUrl = `${baseEndpoint}/chat`;
 
     const controller = new AbortController();
     activeChatController = controller;
     const timeoutId = setTimeout(() => controller.abort(), RUNTIME_LIMITS.requestTimeoutMs);
-    const request = (async () => {
-      try {
-      const response = await fetch(serverUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userText, client: 'web', session_id: getClientSessionId(), context: { device: /iPhone|iPad/i.test(navigator.userAgent) ? 'ios' : 'web' } }),
-        signal: controller.signal
-      });
+    const payload = {
+      message: userText,
+      client: 'web',
+      session_id: getClientSessionId(),
+      stream: true,
+      context: { device: /iPhone|iPad/i.test(navigator.userAgent) ? 'ios' : 'web' }
+    };
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const data = await response.json();
-      const reply = data.reply;
+    const handleChatResult = (data, spokenDuringStream) => {
+      const reply = data.reply || '';
       const engineUsed = data.engine || 'Stark-Core';
       const latencyMs = data.latency_ms || 0;
-
-      // Mostra risposta con badge motore e latenza
+      if (data.memory && data.memory.facts) {
+        renderMemoryFacts(data.memory.facts);
+      } else if (String(data.action || '').startsWith('memory_')) {
+        refreshMemoryVault();
+      }
       addLogEntry('JARVIS', reply, engineUsed, latencyMs);
       if (statusElem) statusElem.innerText = "ONLINE // STANDBY";
       updateUIStatus('STANDBY');
-
-      // Riproduzione vocale senza freeze
-      speak(reply);
-
-      // Esecuzione tool action inviata dal server
+      if (!spokenDuringStream && reply) {
+        speak(reply);
+      }
       const action = data.action;
       const actionParams = data.action_params || {};
-
-      if (action && action !== 'chat') {
+      if (action && action !== 'chat' && !String(action).startsWith('memory_')) {
         executeToolAction(action, actionParams);
-      } else {
+      } else if (!action || action === 'chat') {
         const localCheck = executeLocalIntentEngine(userText);
         if (localCheck && localCheck.action !== 'chat') {
           executeToolAction(localCheck.action, localCheck.params);
         }
       }
-
       return reply;
+    };
+
+    const consumeSseChat = async (response) => {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let spoken = false;
+      let finalData = null;
+      let meta = null;
+      let speechChain = Promise.resolve();
+      const enqueueSpeak = (sentence) => {
+        speechChain = speechChain.then(async () => {
+          if (!sentence || !String(sentence).trim()) return;
+          if (!spoken) {
+            spoken = true;
+            pauseSttForTts(2000);
+            state.isSpeaking = true;
+            updateUIStatus('SPEAKING');
+          }
+          const speakNativeChunk = () => new Promise((resolve) => {
+            if (!('speechSynthesis' in window)) { resolve(); return; }
+            const u = new SpeechSynthesisUtterance(sentence);
+            u.lang = state.settings.lang || 'it-IT';
+            u.onend = resolve;
+            u.onerror = resolve;
+            window.speechSynthesis.speak(u);
+          });
+          try {
+            if (state.settings.ttsEngine === 'elevenlabs' && state.settings.elevenLabsKey) {
+              await speakWithElevenLabs(sentence);
+            } else if (state.settings.ttsEngine === 'native') {
+              await speakNativeChunk();
+            } else {
+              await speakWithEdgeTTS(sentence);
+            }
+          } catch (e) {
+            try { await speakNativeChunk(); } catch (_) {}
+          }
+        });
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let sep;
+        while ((sep = buffer.indexOf('\n\n')) >= 0) {
+          const rawEvent = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          let evName = 'message';
+          let dataLine = '';
+          rawEvent.split('\n').forEach((line) => {
+            if (line.startsWith('event:')) evName = line.slice(6).trim();
+            else if (line.startsWith('data:')) dataLine += line.slice(5).trim();
+          });
+          if (!dataLine) continue;
+          let parsed;
+          try { parsed = JSON.parse(dataLine); } catch (_) { continue; }
+          if (evName === 'meta') {
+            meta = parsed;
+          } else if (evName === 'sentence' && parsed.text) {
+            enqueueSpeak(parsed.text);
+          } else if (evName === 'done') {
+            finalData = parsed;
+          }
+        }
+      }
+      await speechChain;
+      if (spoken) {
+        state.isSpeaking = false;
+        updateUIStatus('STANDBY');
+        resumeSttAfterTts(550);
+      }
+      return handleChatResult(finalData || { reply: '', engine: (meta && meta.engine) || 'stream', action: (meta && meta.action) || 'chat', action_params: (meta && meta.action_params) || {} }, spoken);
+    };
+
+    const request = (async () => {
+      try {
+      // Prefer SSE progressive TTS; fall back to classic JSON /chat
+      let response = await fetch(serverUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+
+      const ct = (response.headers.get('content-type') || '').toLowerCase();
+      if (response.ok && (ct.includes('text/event-stream') || ct.includes('event-stream'))) {
+        return await consumeSseChat(response);
+      }
+
+      // Non-SSE: retry classic /chat without stream
+      if (!response.ok || !ct.includes('json')) {
+        response = await fetch(fallbackUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, stream: false }),
+          signal: controller.signal
+        });
+      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      return handleChatResult(data, false);
 
       } catch (err) {
       // Una richiesta sostituita da un comando più recente non è un errore:
@@ -2797,6 +3059,7 @@ Azioni disponibili:
     DOM.openSettingsBtn.addEventListener('click', () => {
       triggerHaptic(20);
       DOM.settingsModal.removeAttribute('hidden');
+      refreshMemoryVault();
     });
 
     DOM.closeSettingsBtn.addEventListener('click', closeModal);
@@ -2852,6 +3115,53 @@ Azioni disponibili:
         } catch (e) {}
       }
     };
+
+    // Memory Vault controls (settings modal)
+    if (DOM.memoryRefreshBtn) {
+      DOM.memoryRefreshBtn.addEventListener('click', () => {
+        triggerHaptic(15);
+        refreshMemoryVault();
+      });
+    }
+    if (DOM.memoryAddBtn) {
+      DOM.memoryAddBtn.addEventListener('click', async () => {
+        const val = (DOM.memoryFactInput && DOM.memoryFactInput.value || '').trim();
+        if (!val) return;
+        triggerHaptic(20);
+        try {
+          await addMemoryFact(val);
+          if (DOM.memoryFactInput) DOM.memoryFactInput.value = '';
+          addLogEntry('JARVIS', `Memorizzato: «${val}»`, 'memory-vault');
+        } catch (e) {
+          addLogEntry('JARVIS', 'Impossibile salvare il fatto nel Memory Vault.', 'MEMORY-ERROR');
+        }
+      });
+    }
+    if (DOM.memoryClearBtn) {
+      DOM.memoryClearBtn.addEventListener('click', async () => {
+        if (!window.confirm('Azzerare tutto il Memory Vault di questa sessione?')) return;
+        triggerHaptic(30);
+        try {
+          await clearMemoryVault();
+          addLogEntry('JARVIS', 'Memory Vault azzerato, signore.', 'memory-vault');
+        } catch (e) {
+          addLogEntry('JARVIS', 'Clear memoria fallito.', 'MEMORY-ERROR');
+        }
+      });
+    }
+    if (DOM.memoryFactsList) {
+      DOM.memoryFactsList.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.memory-forget-btn');
+        if (!btn) return;
+        const id = btn.getAttribute('data-id');
+        triggerHaptic(15);
+        try {
+          await forgetMemoryFact(id);
+        } catch (err) {
+          console.warn('[JARVIS] forget failed', err);
+        }
+      });
+    }
 
     window.addEventListener('click', onFirstUserInteraction, { once: true });
     window.addEventListener('touchstart', onFirstUserInteraction, { once: true });

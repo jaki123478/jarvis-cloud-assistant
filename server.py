@@ -37,6 +37,7 @@ except ImportError:
     TavilyClient = None
 from dotenv import load_dotenv
 import edge_tts
+import memory_vault as memvault
 
 # Carica variabili d'ambiente da .env
 load_dotenv()
@@ -536,6 +537,27 @@ class UserQuery(BaseModel):
     model: str | None = None
     personality: str | None = None
     api_key: str | None = None
+    stream: bool = False
+
+
+class MemoryFactRequest(BaseModel):
+    session_id: str = ""
+    fact: str = ""
+    text: str = ""
+    source: str = "api"
+    client: str = "web"
+
+
+class MemoryForgetRequest(BaseModel):
+    session_id: str = ""
+    fact_id: str | None = None
+    query: str | None = None
+    client: str = "web"
+
+
+class MemoryClearRequest(BaseModel):
+    session_id: str = ""
+    client: str = "web"
 
 class VisionQuery(BaseModel):
     image: str
@@ -1397,6 +1419,103 @@ async def ping():
     """Healthcheck ping per calcolo latenza live su HUD."""
     return {"status": "pong", "time": time.time()}
 
+
+# =============================================================================
+# MEMORY VAULT (persistent per-session facts — shared web + Android)
+# Contract documented in MEMORY_API.md
+# =============================================================================
+def _resolve_memory_session(session_id: str = "", client: str = "web") -> str:
+    return memvault.sanitize_session_id(session_id, client or "web")
+
+
+@app.get("/memory")
+async def memory_list(session_id: str = "", client: str = "web"):
+    """List persistent facts for a session_id (Android/web compatible)."""
+    key = _resolve_memory_session(session_id, client)
+    return memvault.list_facts(key)
+
+
+@app.post("/memory")
+async def memory_add(request: MemoryFactRequest):
+    """Add a fact. Body: {session_id, fact|text, source?, client?}."""
+    key = _resolve_memory_session(request.session_id, request.client)
+    fact_text = (request.fact or request.text or "").strip()
+    try:
+        result = memvault.add_fact(key, fact_text, source=request.source or "api")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
+
+
+@app.post("/memory/forget")
+async def memory_forget(request: MemoryForgetRequest):
+    """Forget by fact_id or substring query. Body: {session_id, fact_id?, query?}."""
+    key = _resolve_memory_session(request.session_id, request.client)
+    try:
+        return memvault.forget_fact(key, query=request.query, fact_id=request.fact_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/memory/{fact_id}")
+async def memory_delete_fact(fact_id: str, session_id: str = "", client: str = "web"):
+    """Delete one fact by id (REST-friendly for Android)."""
+    key = _resolve_memory_session(session_id, client)
+    return memvault.forget_fact(key, fact_id=fact_id)
+
+
+@app.post("/memory/clear")
+async def memory_clear(request: MemoryClearRequest):
+    """Clear all facts for a session."""
+    key = _resolve_memory_session(request.session_id, request.client)
+    return memvault.clear_facts(key)
+
+
+def _inject_memory_into_history(conversation_history: list, session_key: str, base_prompt: str) -> list:
+    """Ensure system prompt carries Memory Vault facts for this session."""
+    block = memvault.facts_as_prompt_block(session_key)
+    if not conversation_history:
+        content = base_prompt if not block else f"{base_prompt}\n\n{block}"
+        return [{"role": "system", "content": content}]
+    # Rebuild system message with current facts
+    sys_content = base_prompt if not block else f"{base_prompt}\n\n{block}"
+    if conversation_history[0].get("role") == "system":
+        conversation_history[0] = {"role": "system", "content": sys_content}
+    else:
+        conversation_history.insert(0, {"role": "system", "content": sys_content})
+    return conversation_history
+
+
+async def _sse_chat_payload(payload: dict):
+    """Yield SSE events: meta, sentence*, done — for progressive client TTS."""
+    reply = payload.get("reply") or ""
+    sentences = memvault.split_sentences_for_stream(reply)
+    meta = {
+        "action": payload.get("action", "chat"),
+        "action_params": payload.get("action_params") or {},
+        "engine": payload.get("engine", "stark-llm"),
+        "latency_ms": payload.get("latency_ms", 0),
+        "sentence_count": len(sentences),
+    }
+    if "memory" in payload:
+        meta["memory"] = payload["memory"]
+    yield f"event: meta\ndata: {json.dumps(meta, ensure_ascii=False)}\n\n"
+    for i, sentence in enumerate(sentences):
+        chunk = {"index": i, "text": sentence, "final": i == len(sentences) - 1}
+        yield f"event: sentence\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0)  # yield to event loop so client can start TTS ASAP
+    done = {
+        "reply": reply,
+        "action": payload.get("action", "chat"),
+        "action_params": payload.get("action_params") or {},
+        "engine": payload.get("engine", "stark-llm"),
+        "latency_ms": payload.get("latency_ms", 0),
+    }
+    if "memory" in payload:
+        done["memory"] = payload["memory"]
+    yield f"event: done\ndata: {json.dumps(done, ensure_ascii=False)}\n\n"
+
+
 @app.get("/chat")
 async def chat_info():
     """Informazioni utili quando l'endpoint viene aperto direttamente nel browser."""
@@ -1404,8 +1523,10 @@ async def chat_info():
         "status": "online",
         "endpoint": "/chat",
         "method": "POST",
-        "body": {"message": "Il tuo comando qui"},
-        "note": "Usa l'app Jarvis o una richiesta POST: questo indirizzo non è una pagina web."
+        "body": {"message": "Il tuo comando qui", "session_id": "web-xxx", "stream": False},
+        "stream_endpoint": "/chat/stream",
+        "memory_endpoints": ["/memory", "/memory/forget", "/memory/clear"],
+        "note": "Usa l'app Jarvis o una richiesta POST. Intent memoria: ricorda X / dimentica X / cosa sai di me."
     }
 
 @app.post("/chat")
@@ -1413,9 +1534,7 @@ async def chat(request: UserQuery):
     """Endpoint unificato con Multi-Modello (DeepSeek-V4.1-Flash, Grok, ChatGPT, Gemini, Qwen, Stark) e Tool Calling."""
     global conversation_history, conversation_histories, conversation_session_last_seen
     t_start = time.time()
-    session_key = (request.session_id or "").strip()[:120]
-    if not session_key:
-        session_key = f"{request.client}:anonymous"
+    session_key = memvault.sanitize_session_id(request.session_id, request.client or "web")
     now = time.time()
     for old_key, last_seen in list(conversation_session_last_seen.items()):
         if now - last_seen > CONVERSATION_SESSION_TTL:
@@ -1429,6 +1548,25 @@ async def chat(request: UserQuery):
     conversation_history = conversation_histories.setdefault(
         session_key, [{"role": "system", "content": DEEPSEEK_PROMPT}]
     )
+
+    def _maybe_stream(payload: dict):
+        if getattr(request, "stream", False):
+            return StreamingResponse(
+                _sse_chat_payload(payload),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                    "Connection": "keep-alive",
+                },
+            )
+        return payload
+
+    # Memory Vault intents: "ricorda X", "dimentica X", "cosa sai di me"
+    memory_hit = memvault.try_memory_intent(session_key, request.message)
+    if memory_hit is not None:
+        memory_hit["latency_ms"] = round((time.time() - t_start) * 1000, 1)
+        return _maybe_stream(memory_hit)
 
     contextual_message = request.message
     if request.client == "android" and request.context:
@@ -1460,17 +1598,26 @@ async def chat(request: UserQuery):
         requested_model, request.personality, user_key
     )
 
+    # Memory Vault → inject facts into the active system prompt for this turn
+    conversation_history = _inject_memory_into_history(
+        conversation_history, session_key, DEEPSEEK_PROMPT
+    )
+    conversation_histories[session_key] = conversation_history
+
     # Motore Cognitivo Autonomo Stark (ACB) — Se nessun LLM remoto configurato o nanoGPT locale
     if active_client is None or active_model == "nanogpt-local" or (active_model == "stark-cognitive" and not local_llm_mode):
         cognitive_res = stark_cognitive_engine(contextual_message)
         latency = round((time.time() - t_start) * 1000, 1)
         cognitive_res["latency_ms"] = latency
         cognitive_res["engine"] = active_engine_label
-        return cognitive_res
+        return _maybe_stream(cognitive_res)
 
-    # Pipeline LLM Avanzata Multi-Modello con Function Calling
-    if not conversation_history or conversation_history[0].get("role") != "system" or conversation_history[0].get("content") != active_prompt:
-        conversation_history = [{"role": "system", "content": active_prompt}]
+    # Pipeline LLM Avanzata Multi-Modello con Function Calling + Memory Vault
+    conversation_history = _inject_memory_into_history(
+        [m for m in conversation_history if m.get("role") != "system"],
+        session_key,
+        active_prompt,
+    )
 
     conversation_history.append({"role": "user", "content": contextual_message})
 
@@ -1558,13 +1705,13 @@ async def chat(request: UserQuery):
 
         latency = round((time.time() - t_start) * 1000, 1)
 
-        return {
+        return _maybe_stream({
             "reply": reply,
             "action": triggered_action,
             "action_params": triggered_params,
             "engine": active_engine_label,
             "latency_ms": latency
-        }
+        })
 
     except Exception as e:
         error_msg = f"Anomalia riscontrata nei processori centrali ({active_engine_label}): {str(e)}"
@@ -1582,7 +1729,7 @@ async def chat(request: UserQuery):
             cognitive_fallback["engine"] = f"{active_engine_label}-local-fallback"
             cognitive_fallback["latency_ms"] = round((time.time() - t_start) * 1000, 1)
             conversation_histories[session_key] = conversation_history[:1]
-            return cognitive_fallback
+            return _maybe_stream(cognitive_fallback)
 
         # Recupero resiliente rapido senza tools
         try:
@@ -1598,13 +1745,13 @@ async def chat(request: UserQuery):
             recovery_reply = recovery.choices[0].message.content or "Non ho ricevuto contenuto dal modello."
             conversation_history = recovery_messages + [{"role": "assistant", "content": recovery_reply}]
             conversation_histories[session_key] = conversation_history
-            return {
+            return _maybe_stream({
                 "reply": recovery_reply,
                 "action": "chat",
                 "action_params": {},
                 "engine": f"{active_engine_label}-recovery",
                 "latency_ms": round((time.time() - t_start) * 1000, 1)
-            }
+            })
         except Exception as recovery_error:
             print(f"[JARVIS RECOVERY ERROR] {recovery_error}")
 
@@ -1612,9 +1759,17 @@ async def chat(request: UserQuery):
         cognitive_fallback = stark_cognitive_engine(request.message)
         cognitive_fallback["engine"] = f"{active_engine_label}-cognitive-fallback"
         cognitive_fallback["latency_ms"] = round((time.time() - t_start) * 1000, 1)
-        return cognitive_fallback
+        return _maybe_stream(cognitive_fallback)
 
 # Handler per servire file statici PWA con corretto Content-Type
+
+@app.post("/chat/stream")
+async def chat_stream(request: UserQuery):
+    """SSE progressive reply (sentence events). Same body as /chat; forces stream=true."""
+    request.stream = True
+    return await chat(request)
+
+
 @app.api_route("/{file_name:path}", methods=["GET", "HEAD"])
 async def get_static_file(file_name: str):
     """Serve i file statici della PWA (app.js, style.css, manifest.json, icone, ecc.)."""

@@ -63,7 +63,7 @@
         <service android:name=".WhatsAppNotificationService" android:label="J.A.R.V.I.S. WhatsApp" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true">
             <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
         </service>
-        <service android:name=".JarvisForegroundService" android:label="J.A.R.V.I.S. Core" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".JarvisForegroundService" android:label="J.A.R.V.I.S. Core" android:exported="false" android:foregroundServiceType="microphone|dataSync" />
         <service android:name=".JarvisVoiceInteractionService" android:permission="android.permission.BIND_VOICE_INTERACTION" android:exported="true">
             <meta-data android:name="android.voice_interaction" android:resource="@xml/voice_interaction_service" />
             <intent-filter><action android:name="android.service.voice.VoiceInteractionService" /></intent-filter>

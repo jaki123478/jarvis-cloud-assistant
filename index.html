@@ -210,6 +210,14 @@
               <span class="diag-label">SCREEN WAKELOCK:</span>
               <span class="diag-value" id="diag-wakelock-state">DISATTIVO</span>
             </div>
+            <div class="diagnostic-row">
+              <span class="diag-label">ANTI-ECHO:</span>
+              <span class="diag-value" id="diag-antiecho-state">STANDBY</span>
+            </div>
+            <div class="diagnostic-row">
+              <span class="diag-label">MEMORY VAULT:</span>
+              <span class="diag-value" id="diag-memory-count">0</span>
+            </div>
           </div>
 
           <!-- Fast Action Shortcuts -->
@@ -502,6 +510,7 @@
           <label for="setting-continuous-rec">Ascolto Continuo Streaming:</label>
           <input type="checkbox" id="setting-continuous-rec" class="hud-checkbox" checked>
         </div>
+        <small class="form-hint" style="margin-top:-6px;display:block;">Wake-phrase filter (no ONNX). Anti-echo: STT in pausa durante TTS.</small>
 
         <!-- Stark personality -->
         <div class="form-group personality-group">
@@ -519,6 +528,23 @@
           <label for="setting-custom-jokes">Battute personalizzate (una per riga):</label>
           <textarea id="setting-custom-jokes" class="hud-input custom-jokes-input" rows="4" placeholder="Inserisci una battuta per riga..."></textarea>
           <small class="form-hint">Verranno usate anche con “raccontami una battuta”.</small>
+        </div>
+
+        <!-- Memory Vault -->
+        <div class="form-group memory-vault-group">
+          <label>Memory Vault (persistente sul server)</label>
+          <small class="form-hint">Di&apos; &laquo;ricorda che…&raquo;, &laquo;dimentica…&raquo;, &laquo;cosa sai di me&raquo; — oppure gestisci qui. Stessi endpoint per Android.</small>
+          <ul id="memory-facts-list" class="memory-facts-list custom-scrollbar">
+            <li class="memory-empty">Caricamento…</li>
+          </ul>
+          <div class="memory-add-row">
+            <input type="text" id="memory-fact-input" class="hud-input" placeholder="Nuovo fatto da ricordare…" maxlength="500">
+            <button type="button" class="hud-btn" id="memory-add-btn">SALVA</button>
+          </div>
+          <div class="memory-actions-row">
+            <button type="button" class="hud-btn" id="memory-refresh-btn">AGGIORNA</button>
+            <button type="button" class="hud-btn memory-danger-btn" id="memory-clear-btn">AZZERA VAULT</button>
+          </div>
         </div>
 
         <!-- Audio Testing -->

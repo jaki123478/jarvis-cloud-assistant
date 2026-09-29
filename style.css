@@ -1657,3 +1657,72 @@ body.joke-mode .status-banner { border-color: var(--hud-gold); box-shadow: var(-
   button, input, select, textarea { touch-action: manipulation; }
   .hud-footer { margin-bottom: env(safe-area-inset-bottom); }
 }
+
+/* --- Memory Vault (settings + HUD) --- */
+.memory-vault-group {
+  border: 1px solid rgba(0, 220, 255, 0.25);
+  padding: 12px;
+  border-radius: 6px;
+  background: rgba(0, 40, 60, 0.35);
+}
+.memory-facts-list {
+  list-style: none;
+  margin: 8px 0 10px;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.memory-facts-list li.memory-fact-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  border: 1px solid rgba(0, 200, 255, 0.15);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: var(--stark-cyan, #7df9ff);
+}
+.memory-fact-text {
+  flex: 1;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.memory-forget-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 80, 80, 0.5);
+  color: #ff8888;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.memory-forget-btn:hover {
+  background: rgba(255, 60, 60, 0.2);
+}
+.memory-empty {
+  opacity: 0.65;
+  font-size: 0.8rem;
+  padding: 8px;
+  color: #9ad7e8;
+}
+.memory-add-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.memory-add-row .hud-input {
+  flex: 1;
+}
+.memory-actions-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.memory-danger-btn {
+  border-color: rgba(255, 90, 90, 0.55) !important;
+  color: #ffaaaa !important;
+}
