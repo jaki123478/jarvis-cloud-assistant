@@ -27,6 +27,7 @@ public class SettingsActivity extends Activity {
     };
 
     private static final String[] MODEL_KEYS = {
+        "stark",
         "deepseek-v4.1-flash",
         "grok",
         "chatgpt",
@@ -36,6 +37,7 @@ public class SettingsActivity extends Activity {
     };
 
     private static final String[] MODEL_LABELS = {
+        "Stark Mark VII (J.A.R.V.I.S. — stabile)",
         "DeepSeek-V4.1-Flash (MoE 552B)",
         "Grok-2 (xAI)",
         "ChatGPT (GPT-4o OpenAI)",
@@ -110,7 +112,7 @@ public class SettingsActivity extends Activity {
         }
 
         // Seleziona modello attivo
-        String currentModel = prefs.getString("ai_model", "deepseek-v4.1-flash");
+        String currentModel = prefs.getString("ai_model", "stark");
         for (int i = 0; i < MODEL_KEYS.length; i++) {
             if (MODEL_KEYS[i].equalsIgnoreCase(currentModel)) {
                 modelSpinner.setSelection(i);
@@ -142,7 +144,7 @@ public class SettingsActivity extends Activity {
             userName.setText(prefs.getString("user_name", ""));
             phone.setText(prefs.getString("reminder_phone", ""));
             apiKeyInput.setText(prefs.getString("custom_api_key", ""));
-            String m = prefs.getString("ai_model", "deepseek-v4.1-flash");
+            String m = prefs.getString("ai_model", "stark");
             for (int i = 0; i < MODEL_KEYS.length; i++) {
                 if (MODEL_KEYS[i].equalsIgnoreCase(m)) {
                     modelSpinner.setSelection(i);
@@ -181,6 +183,7 @@ public class SettingsActivity extends Activity {
         int modelPos = modelSpinner.getSelectedItemPosition();
         if (modelPos >= 0 && modelPos < MODEL_KEYS.length) {
             editor.putString("ai_model", MODEL_KEYS[modelPos]);
+            editor.putBoolean("ai_model_user_selected", true);
         }
 
         String apiKey = apiKeyInput.getText().toString().trim();

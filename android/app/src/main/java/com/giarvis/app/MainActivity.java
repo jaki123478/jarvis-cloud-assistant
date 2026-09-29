@@ -111,6 +111,13 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.rgb(5, 11, 18));
         
         preferences = getSharedPreferences("jarvis_profile", MODE_PRIVATE);
+        // Migrazione: le installazioni precedenti usavano DeepSeek come default,
+        // causando risposte variabili quando il gateway remoto cambiava provider.
+        // Manteniamo i modelli remoti solo se l'utente li ha scelti esplicitamente.
+        if (!preferences.getBoolean("ai_model_user_selected", false)
+                && "deepseek-v4.1-flash".equalsIgnoreCase(preferences.getString("ai_model", ""))) {
+            preferences.edit().putString("ai_model", "stark").apply();
+        }
         userName = preferences.getString("user_name", "");
         sessionId = preferences.getString("assistant_session_id", "");
         if (sessionId.trim().isEmpty()) {
@@ -822,7 +829,7 @@ public class MainActivity extends Activity {
                 c.setDoOutput(true);
                 c.setRequestProperty("Content-Type", "application/json");
 
-                String selectedModel = preferences.getString("ai_model", "deepseek-v4.1-flash");
+                String selectedModel = preferences.getString("ai_model", "stark");
                 String customApiKey = preferences.getString("custom_api_key", "");
                 String contextualMessage = (userName.trim().isEmpty() ? "" : "L'utente con cui stai parlando si chiama " + userName + ". Rivolgiti a lui usando il nome quando naturale.\n")
                         + (memory.trim().isEmpty() ? "" : "Contesto recente della conversazione:\n" + memory + "\n")

@@ -105,7 +105,7 @@ async def webrtc_signaling(websocket: WebSocket, room_id: str):
 # Configurazione Multi-Modello LLM (DeepSeek-V4.1-Flash, Grok, ChatGPT, Gemini, Qwen, Stark)
 api_key = (os.getenv("LLM_API_KEY") or "").strip()
 base_url = os.getenv("LLM_BASE_URL", None)
-model_name = os.getenv("LLM_MODEL", "deepseek-v4.1-flash")
+model_name = os.getenv("LLM_MODEL", "stark-cognitive")
 local_llm_mode = os.getenv("LOCAL_LLM_MODE", "false").lower() == "true"
 
 # Recupero chiave Groq attiva (chiave.env o env)
@@ -433,7 +433,7 @@ def resolve_model_session(req_model: str = None, req_personality: str = None, us
     Risolve il client OpenAI-compatibile, il modello specifico e il system prompt
     per DeepSeek-V4.1-Flash, Grok, ChatGPT, Gemini, Qwen o Stark.
     """
-    target = (req_model or req_personality or os.getenv("LLM_MODEL", "deepseek-v4.1-flash")).lower().strip()
+    target = (req_model or req_personality or os.getenv("LLM_MODEL", "stark-cognitive")).lower().strip()
     u_key = (user_api_key or "").strip()
 
     # 1. DEEPSEEK-V4.1-FLASH (Hugging Face / DeepSeek Direct / Groq Fast / Stark ACB)
@@ -504,7 +504,12 @@ def resolve_model_session(req_model: str = None, req_personality: str = None, us
             return c, "qwen-plus", QWEN_PROMPT, "Qwen-Plus (Alibaba DashScope)"
         return None, "stark-cognitive", QWEN_PROMPT, "Qwen (Stark Cognitive)"
 
-    # 6. STARK J.A.R.V.I.S. (Mark VII Core)
+    # 6. STARK J.A.R.V.I.S. (Mark VII Core): predefinito deterministico.
+    # I gateway remoti restano disponibili scegliendo esplicitamente il modello.
+    if target in {"stark", "stark-cognitive", "jarvis", "default"}:
+        return None, "stark-cognitive", STARK_PROMPT, "Stark Mark VII (Cognitive ACB)"
+
+    # 7. Modello personalizzato/non riconosciuto
     else:
         if groq_api_key:
             c = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1", timeout=45.0, max_retries=1)
