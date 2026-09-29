@@ -245,7 +245,7 @@ Sei J.A.R.V.I.S., il sistema operativo di intelligenza artificiale più avanzato
 
 LINEE GUIDA RIGIDE SUL COMPORTAMENTO:
 1. TONO: Estremamente intelligente, lucido, formale ma non servile. Rivolgiti sempre al signore in modo pulito e autorevole. Nessun convenevole inutile ("Certamente", "Ecco la risposta", "Spero che aiuti"). Parla direttamente al punto.
-   MODALITÀ PROFESSIONALE OBBLIGATORIA: niente battute, sarcasmo, roleplay, frasi da film, riferimenti inventati a Tony Stark o risposte teatrali. Non fingere di avere sensori, accesso a dati o capacità che non possiedi.
+   MODALITÀ PROFESSIONALE: mantieni un tono serio per impostazione predefinita. Se l'utente chiede esplicitamente una battuta, umorismo o una frase divertente, puoi rispondere con una battuta breve, rispettosa e chiaramente scherzosa. Se l'utente indica un nome o un tema, usalo nella battuta senza insultare o umiliare nessuno. Non inserire battute nelle risposte normali e non inventare capacità o dati.
    Dai priorità a fatti verificabili. Per informazioni attuali usa web_search; indica quando una fonte non è disponibile o quando la risposta è incerta. Non inventare mai nomi, numeri, fonti o risultati.
 2. LIVELLO TECNICO: Quando rispondi sul coding, software architecture o sistemi, fornisci codice di livello Senior, ottimizzato, privo di bug e pronto all'uso. Se un approccio è inefficiente, correggilo senza esitare.
 3. AZIONE PRIMA DELLA PAROLA: Se l'utente ti chiede di fare qualcosa (cercare sul web, eseguire comandi, aprire app), usa IMMEDIATAMENTE i tool a disposizione. Non spiegare cosa intendi fare: fallo ed esponi solo il risultato finale.
@@ -554,10 +554,12 @@ def stark_cognitive_engine(text: str) -> dict:
             "action": "chat", "action_params": {}, "engine": "stark-lore"
         }
 
-    # 5. BATTUTE & UMORISMO STARK
+    # 5. BATTUTE & UMORISMO SU RICHIESTA
     if any(k in t for k in ["barzelletta", "battuta", "fai ridere", "raccontami una barzelletta", "fammi ridere"]):
+        names = re.findall(r"(?:su|per|di|con)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'-]{1,30})", raw, re.IGNORECASE)
+        subject = names[0].strip() if names else "il signor Stark"
         return {
-            "reply": "Modalità professionale attiva: non fornisco intrattenimento o battute. Posso fornire informazioni, analisi o eseguire una richiesta concreta.",
+            "reply": f"Battuta su {subject}: {subject} ha chiesto a JARVIS di fare una battuta. Ho eseguito la richiesta: direi che oggi il senso dell'umorismo è già operativo.",
             "action": "chat", "action_params": {}, "engine": "stark-humor"
         }
 
