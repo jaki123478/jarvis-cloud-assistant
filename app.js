@@ -318,76 +318,6 @@
       state.settings.llmProvider = 'fastapi';
     }
     syncSettingsForm();
-    updateJokeCounter();
-  }
-
-  function updateJokeCounter() {
-    if (DOM.jokeCount) DOM.jokeCount.textContent = `${state.jokesUsed} ${state.jokesUsed === 1 ? 'BATTUTA' : 'BATTUTE'}`;
-  }
-
-  function getStarkJoke(context = 'generale') {
-    const custom = String(state.settings.customJokes || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    const personality = state.settings.personality || 'stark';
-    const jokes = [
-      'Tony Stark ha inventato un assistente capace di tutto. Poi ha chiesto anche di ricordargli dove ha lasciato le chiavi.',
-      'Gli Avengers hanno un piano per ogni emergenza. Per il Wi-Fi lento, invece, convocano direttamente Thor.',
-      'Iron Man non ha paura del buio: ha semplicemente installato un reattore Arc anche nella lampadina.',
-      'JARVIS, qual è la mia superpotenza? Premere “rimanda” sulla sveglia con precisione chirurgica.',
-      'Tony Stark entra in una stanza e il Bluetooth si connette da solo: anche i dispositivi vogliono essere parte della squadra.',
-      'Airomen non perde mai il telefono. Lo localizza con il sonar, poi lo trova sotto il cuscino.',
-      'Perché il computer va dal medico? Perché ha un virus e non trova l’antivirus.',
-      'Cosa dice una lampadina quando ha un’idea? Mi si è accesa una cosa.',
-      'Ho chiesto al Wi‑Fi se stava bene. Mi ha risposto: “Sono connesso, ma non mi sento visto”.',
-      'Perché il pomodoro arrossisce? Perché ha visto l’insalata nuda.',
-      'Qual è il colmo per un elettricista? Non avere corrente in famiglia.',
-      'JARVIS, fai una battuta sul caffè. Meglio di no: sarebbe troppo macchiata.',
-      'Ho provato a raccontare una battuta sul parcheggio, ma non c’era posto.',
-      'Cosa fa un chicco di caffè in palestra? Si allena per diventare espresso.',
-      'Il mio hard disk ha lasciato il computer: diceva che avevo troppi ricordi.',
-      'Perché il libro di matematica è triste? Ha troppi problemi.',
-      'Un byte entra in un bar. Il barista chiede: “Cosa prendi?”. Il byte risponde: “Un bit”.',
-      'Ho detto a Jarvis di essere spontaneo. Ha aperto un foglio Excel.',
-      'Qual è il colmo per un astronauta? Avere i piedi per terra.',
-      'Il Bluetooth e il Wi‑Fi hanno litigato: non erano più sulla stessa lunghezza d’onda.',
-      'Perché il telefono è andato in vacanza? Aveva bisogno di staccare la spina.',
-      'Un robot entra in un bar e ordina un cavo. Il barista: “USB?”. Il robot: “No, grazie, sono già carico”.',
-      'Ho comprato una memoria nuova. Ora ricordo anche perché l’ho comprata.',
-      'Qual è il colmo per un calendario? Avere i giorni contati.',
-      'La mia stampante è molto spirituale: crede sempre nella reincarnazione dei fogli.',
-      'Perché il mouse non racconta segreti? Ha sempre qualcuno che lo clicca.',
-      'Ho chiesto al frigorifero se aveva fame. Mi ha detto che era pieno.',
-      'Che cosa dice una presa all’altra? Restiamo in contatto.',
-      'Il computer è caduto in mare: ora ha un virus marino.',
-      'Perché il microfono è timido? Perché teme di essere amplificato.',
-      'Ho fatto una battuta sul caricabatterie, ma non ha fatto presa.',
-      'Un algoritmo entra in una stanza e dice: “Ho già visto questo scenario”.',
-      'Cosa fa un drone quando è triste? Prende quota per riflettere.',
-      'Il GPS ha perso la strada. Ora sta facendo finta di averlo fatto apposta.',
-      'Ho chiesto a una nuvola un consiglio. Mi ha detto di lasciar perdere e piovere sul problema.',
-      context === 'batteria' ? 'La batteria è bassa, signore. Persino Iron Man, prima di salvare il mondo, cerca un caricabatterie.' : '',
-      context === 'microfono' ? 'Microfono attivo. Può parlare, signore: prometto di non inoltrare la registrazione a Nick Fury.' : '',
-      context === 'webcam' ? 'Webcam attiva. Sorrida, signore: anche Tony Stark controllava sempre il suo lato migliore.' : '',
-      context === 'wakelock' ? 'Wake Lock attivo. Lo schermo resterà sveglio più a lungo di Tony Stark davanti a un nuovo progetto.' : '',
-      personality === 'sarcastico' ? 'Ho analizzato la situazione: lei ha chiesto una battuta a un’intelligenza artificiale. Audace, signore.' : '',
-      personality === 'elegante' ? 'Una battuta raffinata, signore: anche la tecnologia ha bisogno di un impeccabile senso dell’umorismo.' : '',
-      personality === 'serio' ? 'Rapporto umoristico: il livello di simpatia dei sistemi è operativo. Per fortuna, signore.' : ''
-    ].filter(Boolean);
-    const joke = custom.length && Math.random() < 0.35 ? custom[Math.floor(Math.random() * custom.length)] : jokes[Math.floor(Math.random() * jokes.length)];
-    state.jokesUsed += 1;
-    try { localStorage.setItem('jarvis_jokes_used', String(state.jokesUsed)); } catch (_) {}
-    updateJokeCounter();
-    return joke;
-  }
-
-  function tellStarkJoke(context = 'generale') {
-    const joke = getStarkJoke(context);
-    addLogEntry('JARVIS', joke, 'STARK-HUMOR');
-    DOM.statusBannerText.textContent = '⚡ STARK HUMOR // BATTUTA PRONTA';
-    document.body.classList.add('joke-mode');
-    window.setTimeout(() => document.body.classList.remove('joke-mode'), 1400);
-    playFx('joke');
-    speak(joke);
-    return joke;
   }
 
   function saveSettings() {
@@ -407,7 +337,7 @@
     state.settings.lang = DOM.settingLang.value;
     state.settings.wakeWordEnabled = DOM.settingWakeWord.checked;
     state.settings.continuousRec = DOM.settingContinuousRec.checked;
-    state.settings.personality = DOM.settingPersonality ? DOM.settingPersonality.value : 'stark';
+    state.settings.personality = DOM.settingPersonality ? DOM.settingPersonality.value : 'serio';
     state.settings.customJokes = DOM.settingCustomJokes ? DOM.settingCustomJokes.value.trim() : '';
 
     // Show/hide engine-specific settings
@@ -1184,7 +1114,6 @@
         if (notify) {
           playFx('action');
           addLog("Display WakeLock: ATTIVO");
-          window.setTimeout(() => tellStarkJoke('wakelock'), 180);
         }
 
         wakeLock.addEventListener('release', () => {
@@ -1334,7 +1263,12 @@
             }, 350);
           } else if (level <= 20 && !battery.charging && !state.lowBatteryJokeShown) {
             state.lowBatteryJokeShown = true;
-            window.setTimeout(() => tellStarkJoke('batteria'), 350);
+            window.setTimeout(() => {
+              const alert = `Signore, la batteria è al ${level}%. Colleghi il caricabatterie.`;
+              addLogEntry('JARVIS', alert, 'BATTERY-ALERT');
+              DOM.statusBannerText.textContent = '⚠️ BATTERIA BASSA';
+              speak(alert);
+            }, 350);
           }
           if (level > 25 || battery.charging) {
             state.lowBatteryJokeShown = false;
@@ -1835,9 +1769,6 @@
           micPermissionGranted = true;
           DOM.diagMicState.textContent = 'AUTORIZZATO';
           updateMicButtonUI('ready');
-          if (state.settings.continuousRec) {
-            startListeningStream();
-          }
         } else if (status.state === 'denied') {
           DOM.diagMicState.textContent = 'PERMESSO NEGATO';
           updateMicButtonUI('denied');
@@ -1851,9 +1782,6 @@
             micPermissionGranted = true;
             DOM.diagMicState.textContent = 'AUTORIZZATO';
             updateMicButtonUI('ready');
-            if (state.settings.continuousRec && !state.isSpeechActive) {
-              startListeningStream();
-            }
           } else if (status.state === 'denied') {
             micPermissionGranted = false;
             DOM.diagMicState.textContent = 'PERMESSO NEGATO';
@@ -1990,7 +1918,6 @@
 
     DOM.statusBannerText.textContent = '🟢 IN ASCOLTO... PARLA ADESSO';
     DOM.transcriptText.textContent = 'Ti sto ascoltando... dì il tuo comando (es. "Che tempo fa?")';
-    window.setTimeout(() => tellStarkJoke('microfono'), 180);
 
     // Watchdog automatico: se l'utente non dice nulla entro 8 secondi, resetta a standby (evita blocco infinito)
     if (listeningWatchdogTimer) clearTimeout(listeningWatchdogTimer);
@@ -2747,20 +2674,6 @@
       return speak(normalizedCommand);
     }
 
-    const jokeRequest = /(?:raccontami|dimmi|fammi|voglio)\s+(?:una\s+)?battuta|fammi\s+ridere|modalità\s+sorpresa|sorpresa/i.test(commandText);
-    if (jokeRequest) {
-      addLogEntry('USER', commandText);
-      return tellStarkJoke(/sorpresa/i.test(commandText) ? 'sorpresa' : 'generale');
-    }
-
-    // Easter egg: riferimenti ad "Airomen" / Iron Man producono una battuta
-    // locale e funzionano sia con il testo digitato sia con il riconoscimento vocale.
-    const airomenMatch = AIROMEN_REGEX.test(commandText);
-    if (airomenMatch) {
-      addLogEntry('USER', commandText);
-      return tellStarkJoke('airomen');
-    }
-
     // Chiamata per nome/numero (rubrica locale) — prima del LLM
     // Evita falsi positivi tipo "come si chiama" / "mi chiamo"
     if (/(?:^|\s)(chiama|telefona|chiamata)\b/i.test(commandText) && !/\b(come\s+si\s+chiama|mi\s+chiamo|si\s+chiama)\b/i.test(commandText)) {
@@ -3451,14 +3364,6 @@ Azioni disponibili:
       DOM.statusBanner.style.cursor = 'pointer';
       DOM.statusBanner.addEventListener('click', toggleVoiceMode);
     }
-    if (DOM.tellJokeBtn) {
-      DOM.tellJokeBtn.addEventListener('click', () => {
-        unlockAudio();
-        triggerHaptic(30);
-        tellStarkJoke('sorpresa');
-      });
-    }
-
     // Screen Wake Lock Toggle Button
     DOM.wakeLockToggle.addEventListener('click', toggleWakeLock);
 
@@ -3680,7 +3585,6 @@ Azioni disponibili:
         if (btnCapture) btnCapture.style.display = 'inline-block';
         btnToggle.innerHTML = '<span class="btn-prefix">⏹️</span> DISATTIVA';
         addLogEntry('SYSTEM', 'Sensori visivi online. Inquadra un oggetto e tocca ANALIZZA.');
-        window.setTimeout(() => tellStarkJoke('webcam'), 180);
       } catch (err) {
         console.error('[JARVIS VISION ERROR]', err);
         addLogEntry('ERROR', `Accesso telecamera negato o non supportato: ${err.message}`);

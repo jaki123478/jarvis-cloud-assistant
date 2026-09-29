@@ -356,10 +356,6 @@
             <span class="transcript-prefix">// TRASCRIZIONE: </span>
             <span class="transcript-text" id="transcript-text">In attesa di comando vocale...</span>
           </div>
-          <div class="stark-joke-console" aria-label="Modalità battute Stark">
-            <div><span class="joke-kicker">STARK HUMOR</span><strong id="joke-count">0 BATTUTE</strong></div>
-            <button class="hud-btn joke-btn" id="tell-joke-btn" type="button">ALTRA BATTUTA</button>
-          </div>
         </div>
       </section>
 
@@ -539,22 +535,12 @@
         </div>
         <small class="form-hint" style="margin-top:-6px;display:block;">Wake-phrase filter (no ONNX). Anti-echo: STT in pausa durante TTS.</small>
 
-        <!-- Stark personality -->
         <div class="form-group personality-group">
           <label for="setting-personality">Personalità JARVIS:</label>
           <select id="setting-personality" class="hud-select">
             <option value="serio">Serio e professionale</option>
-            <option value="sarcastico">Sarcastico</option>
-            <option value="elegante">Elegante</option>
-            <option value="stark">Stark mode — ironia massima</option>
           </select>
-          <small class="form-hint">Influenza battute, saluti e risposte contestuali senza cambiare i comandi operativi.</small>
-        </div>
-
-        <div class="form-group">
-          <label for="setting-custom-jokes">Battute personalizzate (una per riga):</label>
-          <textarea id="setting-custom-jokes" class="hud-input custom-jokes-input" rows="4" placeholder="Inserisci una battuta per riga..."></textarea>
-          <small class="form-hint">Verranno usate anche con “raccontami una battuta”.</small>
+          <small class="form-hint">Risposte professionali, senza modalità umoristica.</small>
         </div>
 
         <!-- Rubrica Contatti (chiama per nome) -->
