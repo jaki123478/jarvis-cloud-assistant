@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#020B14">
+
+    <!-- SCHERMATA CHIAMATA IN ARRIVO -->
+    <LinearLayout
+        android:id="@+id/incomingCallLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:padding="28dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="CHIAMATA IN ARRIVO"
+            android:textColor="#00E5FF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.25" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="LINEA VOCALE TELEFONICA • DIRETTA"
+            android:textColor="#80B0D0"
+            android:textSize="11sp"
+            android:letterSpacing="0.15" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- AVATAR REATTORE JARVIS -->
+        <FrameLayout
+            android:layout_width="140dp"
+            android:layout_height="140dp"
+            android:background="@drawable/border_cyan">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="J"
+                android:textColor="#00E5FF"
+                android:textSize="64sp"
+                android:textStyle="bold" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/callerName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="J.A.R.V.I.S."
+            android:textColor="#FFFFFF"
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.1" />
+
+        <TextView
+            android:id="@+id/reminderBody"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="24dp"
+            android:gravity="center"
+            android:text="Chiamata vocale in entrata dal sistema centrale."
+            android:textColor="#A0D0E8"
+            android:textSize="15sp"
+            android:lineSpacingExtra="3dp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- PULSANTI RISPONDI / RIFIUTA -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnIgnore"
+                android:layout_width="0dp"
+                android:layout_height="58dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="12dp"
+                android:backgroundTint="#8B1A1A"
+                android:text="🔴 RIFIUTA"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnAnswer"
+                android:layout_width="0dp"
+                android:layout_height="58dp"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:backgroundTint="#008855"
+                android:text="🟢 RISPONDI"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnSnooze"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginBottom="16dp"
+            android:backgroundTint="#152B3C"
+            android:text="⏳ RICHIAMA TRA 5 MINUTI"
+            android:textColor="#FFB830"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+    <!-- SCHERMATA IN CHIAMATA ATTIVA (STILE GOOGLE PHONE / PIXEL) -->
+    <LinearLayout
+        android:id="@+id/inCallLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:padding="28dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="IN CHIAMATA CON J.A.R.V.I.S."
+            android:textColor="#00E5FF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.2" />
+
+        <Chronometer
+            android:id="@+id/callChronometer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/callStatusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="AUDIO VOCALE ATTIVO (AVVICINA ALL'ORECCHIO)"
+            android:textColor="#00FF88"
+            android:textSize="11sp"
+            android:letterSpacing="0.1" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- LOG CONVERSAZIONE IN CHIAMATA -->
+        <ScrollView
+            android:id="@+id/callTranscriptScroll"
+            android:layout_width="match_parent"
+            android:layout_height="220dp"
+            android:background="#0A1826"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/callTranscript"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#C0E8F8"
+                android:textSize="15sp"
+                android:lineSpacingExtra="4dp"
+                android:text="Connessione telefonica attiva con J.A.R.V.I.S." />
+        </ScrollView>
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- STATO MICROFONO -->
+        <TextView
+            android:id="@+id/callMicStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:text="JARVIS STA PARLANDO..."
+            android:textColor="#00E5FF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <!-- CONTROLLI TELEFONICI IN CHIAMATA -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="20dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnMuteMic"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:backgroundTint="#102538"
+                android:text="🎤 MUTO"
+                android:textColor="#00E5FF"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnSpeaker"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#102538"
+                android:text="🔊 VIVAVOCE"
+                android:textColor="#80B0D0"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- PULSANTE TERMINA CHIAMATA -->
+        <Button
+            android:id="@+id/btnEndCall"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginBottom="20dp"
+            android:backgroundTint="#D32F2F"
+            android:text="🔴 TERMINA CHIAMATA"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:textSize="15sp" />
+
+    </LinearLayout>
+
+</FrameLayout>

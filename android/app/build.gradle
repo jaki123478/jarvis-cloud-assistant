@@ -1,6 +1,29 @@
 plugins { id 'com.android.application' }
 
 android { namespace 'com.giarvis.app'; compileSdk 35
-    defaultConfig { applicationId 'com.giarvis.app'; minSdk 26; targetSdk 35; versionCode 1; versionName '1.0' }
+    defaultConfig { applicationId 'com.giarvis.app'; minSdk 26; targetSdk 35; versionCode 3; versionName '1.2' }
+    buildFeatures { buildConfig true }
+    // This is the currently deployed Render URL. A build property can override it.
+    def backendUrl = project.findProperty('JARVIS_BACKEND_URL') ?: 'https://jarvis-cloud-assistant-4dsr.onrender.com'
+    signingConfigs {
+        release {
+            storeFile file(project.findProperty('KEYSTORE_FILE') ?: '../giarvis-release.jks')
+            storePassword project.findProperty('KEYSTORE_PASSWORD') ?: 'default_password'
+            keyAlias project.findProperty('KEY_ALIAS') ?: 'default_alias'
+            keyPassword project.findProperty('KEY_PASSWORD') ?: 'default_password'
+        }
+    }
+    buildTypes {
+        release { signingConfig signingConfigs.release; buildConfigField 'String', 'BACKEND_URL', '"' + backendUrl.replace('"', '\\"') + '"' }
+        // Usa la stessa firma della release: gli APK debug successivi possono
+        // aggiornare la release senza INSTALL_FAILED_UPDATE_INCOMPATIBLE.
+        debug { signingConfig signingConfigs.release; buildConfigField 'String', 'BACKEND_URL', '"' + backendUrl.replace('"', '\\"') + '"' }
+    }
 }
 apply plugin: 'com.android.application'
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+    // WebRTC audio engine + WebSocket signaling client.
+    implementation 'io.github.webrtc-sdk:android:150.7871.01'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+}

@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="14dp"
+    android:background="#030A13">
+
+    <TextView
+        android:id="@+id/title"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:text="J.A.R.V.I.S."
+        android:textColor="#00E5FF"
+        android:textSize="27sp"
+        android:fontFamily="monospace"
+        android:textStyle="bold"
+        android:gravity="center" />
+
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="match_parent"
+        android:layout_height="26dp"
+        android:text="ONLINE // STANDBY"
+        android:textColor="#3CDCEB"
+        android:textSize="11sp"
+        android:fontFamily="monospace"
+        android:textStyle="bold"
+        android:gravity="center" />
+
+    <TextView
+        android:id="@+id/privacyStatus"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:textColor="#96DCE6"
+        android:textSize="9sp"
+        android:fontFamily="monospace"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp"
+        android:background="@drawable/frame_border" />
+
+    <TextView
+        android:id="@+id/deviceStatus"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:textColor="#96DCE6"
+        android:textSize="9sp"
+        android:fontFamily="monospace"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp"
+        android:background="@drawable/frame_border" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnCoreOn"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="CORE ON"
+            android:textColor="#00E5FF"
+            android:textSize="10sp" />
+
+        <Button
+            android:id="@+id/btnCoreOff"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="CORE OFF"
+            android:textColor="#FFB428"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/reactorContainer"
+        android:layout_width="match_parent"
+        android:layout_height="220dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="34dp"
+        android:text="TOCCA PER PARLARE (TAP-TO-TALK)"
+        android:textColor="#00E5FF"
+        android:textSize="11sp"
+        android:fontFamily="monospace"
+        android:textStyle="bold"
+        android:gravity="center" />
+
+    <EditText
+        android:id="@+id/commandInput"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:hint="Scrivi un comando..."
+        android:contentDescription="Comando per J.A.R.V.I.S."
+        android:textColor="@android:color/white"
+        android:textColorHint="#507D8C"
+        android:textSize="15sp"
+        android:singleLine="true"
+        android:imeOptions="actionSend"
+        android:fontFamily="monospace"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:background="@drawable/input_border" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:orientation="horizontal"
+        android:paddingTop="8dp">
+
+        <Button
+            android:id="@+id/btnSend"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="INVIA COMANDO"
+            android:contentDescription="Invia comando"
+            android:textColor="#00E5FF"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:textStyle="bold"
+            android:textAllCaps="false"
+            android:background="@drawable/button_border" />
+
+        <Button
+            android:id="@+id/btnMic"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="MICROFONO"
+            android:textColor="#00E5FF"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:textStyle="bold"
+            android:textAllCaps="false"
+            android:background="@drawable/button_border" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <TextView
+            android:id="@+id/transcript"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="// FEED ATTIVITÀ  // MISSION LOG\nJ.A.R.V.I.S. pronto. Tocca il reattore o il microfono per parlare, oppure scrivi un comando."
+            android:textColor="#9BDBEB"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="3dp"
+            android:padding="12dp"
+            android:background="@drawable/transcript_border" />
+    </ScrollView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="54dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnPlus"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.8"
+            android:text="+"
+            android:textColor="#00E5FF"
+            android:textSize="22sp"
+            android:contentDescription="Apri strumenti J.A.R.V.I.S." />
+
+        <Button
+            android:id="@+id/btnHelp"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.1"
+            android:text="COMANDI"
+            android:textColor="#00E5FF"
+            android:textSize="10sp" />
+
+        <Button
+            android:id="@+id/btnHistory"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.1"
+            android:text="CRONOLOGIA"
+            android:textColor="#00E5FF"
+            android:textSize="10sp" />
+
+        <Button
+            android:id="@+id/btnSettings"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.2"
+            android:text="⚙ IMPOSTAZIONI"
+            android:textColor="#FFAA50"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+</LinearLayout>

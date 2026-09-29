@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="32dp"
+    android:background="#030A13">
+
+    <TextView
+        android:id="@+id/onboardTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="J.A.R.V.I.S."
+        android:textColor="#00E5FF"
+        android:textSize="36sp"
+        android:fontFamily="monospace"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingBottom="8dp" />
+
+    <TextView
+        android:id="@+id/onboardSubtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Just A Rather Very Intelligent System"
+        android:textColor="#64DCF0"
+        android:textSize="14sp"
+        android:fontFamily="monospace"
+        android:gravity="center"
+        android:paddingBottom="32dp" />
+
+    <TextView
+        android:id="@+id/onboardDescription"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Benvenuto, signore.\n\nSono l'intelligenza artificiale più avanzata al mondo, progettata per assisterLa in ogni ambito: ricerca web in tempo reale, comandi vocali, promemoria, controllo dispositivo, generazione immagini e molto altro.\n\nPrima di iniziare, ho bisogno di alcune informazioni."
+        android:textColor="#9BDBEB"
+        android:textSize="14sp"
+        android:fontFamily="monospace"
+        android:lineSpacingExtra="4dp"
+        android:gravity="center"
+        android:paddingBottom="24dp" />
+
+    <EditText
+        android:id="@+id/onboardName"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:hint="Come devo chiamarti?"
+        android:textColor="@android:color/white"
+        android:textColorHint="#507D8C"
+        android:fontFamily="monospace"
+        android:singleLine="true"
+        android:background="@drawable/input_border"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:visibility="gone" />
+
+    <EditText
+        android:id="@+id/onboardPhone"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:hint="Numero telefono per promemoria (+39...)"
+        android:textColor="@android:color/white"
+        android:textColorHint="#507D8C"
+        android:fontFamily="monospace"
+        android:singleLine="true"
+        android:inputType="phone"
+        android:background="@drawable/input_border"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:layout_marginTop="12dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/onboardPermissions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Per funzionare al meglio, J.A.R.V.I.S. necessita dell'accesso al microfono, alla fotocamera e alle notifiche."
+        android:textColor="#9BDBEB"
+        android:textSize="13sp"
+        android:fontFamily="monospace"
+        android:gravity="center"
+        android:paddingBottom="16dp"
+        android:visibility="gone" />
+
+    <Button
+        android:id="@+id/onboardNext"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginTop="16dp"
+        android:text="INIZIALIZZA PROTOCOLLI →"
+        android:textColor="#030A13"
+        android:textSize="14sp"
+        android:fontFamily="monospace"
+        android:textStyle="bold"
+        android:backgroundTint="#00E5FF" />
+
+    <TextView
+        android:id="@+id/onboardStep"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="STEP 1 / 3"
+        android:textColor="#507D8C"
+        android:textSize="11sp"
+        android:fontFamily="monospace"
+        android:gravity="center"
+        android:paddingTop="16dp" />
+
+</LinearLayout>

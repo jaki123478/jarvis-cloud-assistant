@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#030A13">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="📋 CRONOLOGIA CONVERSAZIONI"
+            android:textColor="#00E5FF"
+            android:textSize="16sp"
+            android:fontFamily="monospace"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnClearHistory"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="CANCELLA"
+            android:textColor="#FF5555"
+            android:textSize="10sp"
+            android:fontFamily="monospace" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#006482" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/historyContent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#9BDBEB"
+            android:textSize="13sp"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="4dp" />
+    </ScrollView>
+
+    <Button
+        android:id="@+id/btnBackHistory"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="← TORNA A J.A.R.V.I.S."
+        android:textColor="#00E5FF"
+        android:textSize="12sp"
+        android:fontFamily="monospace"
+        android:background="@android:color/transparent" />
+
+</LinearLayout>

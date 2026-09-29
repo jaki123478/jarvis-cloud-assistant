@@ -1,7 +1,27 @@
 .env
 .venv/
 android/local.properties
+local.properties
 android/.gradle/
+.gradle/
 android/**/build/
+android/build/
+build/
 __pycache__/
 .tts_cache/
+# Keystores / signing secrets
+android/giarvis-release.jks
+android/giarvis-release-generated.jks
+*.jks
+*.keystore
+# Env / API key files
+*.env
+*chiav*.env
+chiave.env
+# Build artifacts
+*.apk
+# Large unused vendored tree
+android/third_party/llama.cpp/
+# Misc
+*.png
+kar-ganap-jarvis/
