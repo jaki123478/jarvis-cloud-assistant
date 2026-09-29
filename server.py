@@ -976,7 +976,10 @@ def fetch_web_synthesis(query: str) -> str:
         results = list(DDGS().text(query, max_results=5))
         if not results:
             return None
-        snippets = []
+        # Ordina per pertinenza: DDG può restituire risultati laterali o sponsorizzati.
+        terms = [w.lower() for w in re.findall(r"[a-zà-ÿ0-9]{3,}", query.lower())
+                 if w.lower() not in {"quali", "quale", "sono", "delle", "degli", "della", "del", "ultime", "novità", "novita", "informazioni"}]
+        scored = []
         for r in results:
             body = r.get('body', '')
             if body and len(body) > 25:
@@ -987,9 +990,14 @@ def fetch_web_synthesis(query: str) -> str:
                 clean = re.sub(r'\s*\.\.\.\s*', ' ', clean)
                 clean = clean.strip()
                 if len(clean) > 20:
-                    snippets.append(clean)
-        if snippets:
-            combined = ' '.join(snippets)
+                    title = str(r.get('title', ''))
+                    haystack = f"{title} {clean}".lower()
+                    score = sum(1 for term in terms if term in haystack)
+                    scored.append((score, clean))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        relevant = [text for score, text in scored if score > 0]
+        if relevant:
+            combined = ' '.join(relevant[:3])
             raw_sentences = re.split(r'(?<=[.!?])\s+', combined)
             valid_sentences = [
                 s.strip() for s in raw_sentences
@@ -1004,6 +1012,7 @@ def fetch_web_synthesis(query: str) -> str:
                 if not res.endswith('.'):
                     res += '.'
                 return res
+        print(f"[JARVIS WEB COGNITIVE] Nessun risultato pertinente per: {query}")
     except Exception as e:
         print(f"[JARVIS WEB COGNITIVE ERROR] {e}")
     return None
