@@ -183,6 +183,7 @@
   // INITIALIZATION & SERVICE WORKER
   // =========================================================================
   function init() {
+    initIosInstallGuide();
     try { loadSettings(); } catch (e) { console.error('[JARVIS INIT] loadSettings error:', e); }
     try { initClock(); } catch (e) { console.error('[JARVIS INIT] initClock error:', e); }
     try { initTelemetry(); } catch (e) { console.error('[JARVIS INIT] initTelemetry error:', e); }
@@ -198,6 +199,20 @@
     try { initVisionScanner(); } catch (e) { console.error('[JARVIS INIT] initVisionScanner error:', e); }
     try { bindEvents(); } catch (e) { console.error('[JARVIS INIT] bindEvents error:', e); }
     try { updateUIStatus('STANDBY'); } catch (e) { console.error('[JARVIS INIT] updateUIStatus error:', e); }
+  }
+
+  function initIosInstallGuide() {
+    const guide = document.getElementById('ios-install-guide');
+    const close = document.getElementById('ios-guide-close');
+    if (!guide) return;
+    const ua = navigator.userAgent || '';
+    const isIos = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isStandalone = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    if (isIos && !isStandalone && localStorage.getItem('jarvis_ios_guide_dismissed') !== '1') guide.hidden = false;
+    close?.addEventListener('click', () => {
+      guide.hidden = true;
+      localStorage.setItem('jarvis_ios_guide_dismissed', '1');
+    });
   }
 
   function registerServiceWorker() {

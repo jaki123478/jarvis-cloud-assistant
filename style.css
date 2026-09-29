@@ -857,6 +857,25 @@ body::before {
 }
 
 /* Diagnostics quick mic button */
+.ios-install-guide {
+  position: relative;
+  margin: 10px auto;
+  max-width: 720px;
+  padding: 12px 42px 12px 14px;
+  border: 1px solid rgba(0, 210, 255, .65);
+  border-radius: 8px;
+  background: rgba(0, 35, 55, .92);
+  color: #d9fbff;
+  box-shadow: 0 0 18px rgba(0, 210, 255, .18);
+  font-family: var(--font-body);
+}
+.ios-install-guide[hidden] { display: none; }
+.ios-install-guide strong, .ios-install-guide span, .ios-install-guide small { display: block; }
+.ios-install-guide strong { color: #00eaff; letter-spacing: .04em; }
+.ios-install-guide span { margin-top: 4px; }
+.ios-install-guide small { margin-top: 3px; opacity: .78; }
+.ios-guide-close { position: absolute; right: 10px; top: 6px; border: 0; background: transparent; color: #fff; font-size: 24px; cursor: pointer; }
+
 .diag-mic-actions {
   width: 100%;
 }
