@@ -108,6 +108,21 @@ base_url = os.getenv("LLM_BASE_URL", None)
 model_name = os.getenv("LLM_MODEL", "stark-cognitive")
 local_llm_mode = os.getenv("LOCAL_LLM_MODE", "false").lower() == "true"
 
+# Chiave OpenAI locale fornita dall'utente: il file è escluso da Git.
+if not api_key:
+    for candidate in ("chiave chat gpt.env", "chiave_chat_gpt.env"):
+        key_path = Path(__file__).parent / candidate
+        if key_path.exists():
+            try:
+                candidate_key = key_path.read_text(encoding="utf-8").strip().splitlines()[0].strip()
+                if candidate_key.startswith("sk-"):
+                    api_key = candidate_key
+                    base_url = "https://api.openai.com/v1"
+                    model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+                    break
+            except Exception:
+                pass
+
 # Recupero chiave Groq attiva (chiave.env o env)
 groq_api_key = (os.getenv("GROQ_API_KEY") or "").strip()
 if not groq_api_key:
@@ -507,6 +522,9 @@ def resolve_model_session(req_model: str = None, req_personality: str = None, us
     # 6. STARK J.A.R.V.I.S. (Mark VII Core): predefinito deterministico.
     # I gateway remoti restano disponibili scegliendo esplicitamente il modello.
     if target in {"stark", "stark-cognitive", "jarvis", "default"}:
+        if api_key and base_url == "https://api.openai.com/v1":
+            c = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=1)
+            return c, model_name, STARK_PROMPT, f"OpenAI ({model_name})"
         return None, "stark-cognitive", STARK_PROMPT, "Stark Mark VII (Cognitive ACB)"
 
     # 7. Modello personalizzato/non riconosciuto
@@ -1645,7 +1663,8 @@ async def chat(request: UserQuery):
             model=active_model,
             messages=conversation_history,
             tools=TOOLS_SPEC,
-            tool_choice="auto"
+            tool_choice="auto",
+            temperature=0.2
         )
 
         response_msg = response.choices[0].message
@@ -1755,6 +1774,7 @@ async def chat(request: UserQuery):
                 active_client.chat.completions.create,
                 model=active_model,
                 messages=recovery_messages,
+                temperature=0.2
             )
             recovery_reply = recovery.choices[0].message.content or "Non ho ricevuto contenuto dal modello."
             conversation_history = recovery_messages + [{"role": "assistant", "content": recovery_reply}]
