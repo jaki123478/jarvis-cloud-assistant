@@ -49,8 +49,8 @@
       <div class="https-alert-body">
         <strong>ATTENZIONE:</strong> Chrome su mobile richiede una connessione protetta HTTPS per abilitare il microfono.
       </div>
-      <a href="https://driven-robert-charitable-concentrations.trycloudflare.com" target="_blank" rel="noopener noreferrer" class="https-alert-btn">
-        APRI TUNNEL HTTPS ↗
+      <a href="https://jarvis-cloud-assistant-4dsr.onrender.com" target="_blank" rel="noopener noreferrer" class="https-alert-btn">
+        APRI LIVE HTTPS ↗
       </a>
     </div>
 
@@ -142,6 +142,22 @@
               <span id="metric-charging-state">ALIMENTAZIONE: NORMALE</span>
               <span id="metric-battery-tech">Li-Ion // 4.2V</span>
             </div>
+          </div>
+
+          <!-- Device health: browser-safe telemetry for mobile diagnostics -->
+          <div class="hud-card device-health-card" id="device-health-card">
+            <div class="card-header">
+              <span class="card-subtitle">DEVICE HEALTH // LIVE</span>
+              <span class="card-val health-status" id="health-status">NOMINALE</span>
+            </div>
+            <div class="health-grid">
+              <div class="health-metric"><span class="health-icon">CPU</span><span><b id="health-cpu">--</b><small>CORE LOGICI</small></span></div>
+              <div class="health-metric"><span class="health-icon">RAM</span><span><b id="health-memory">--</b><small>MEMORIA JS</small></span></div>
+              <div class="health-metric"><span class="health-icon">NET</span><span><b id="health-network">--</b><small>CONNESSIONE</small></span></div>
+              <div class="health-metric"><span class="health-icon">DISK</span><span><b id="health-storage">--</b><small>STORAGE LIBERO</small></span></div>
+            </div>
+            <div class="health-progress-row"><span>UTILIZZO JS</span><div class="health-track"><i id="health-memory-bar"></i></div><strong id="health-memory-pct">--</strong></div>
+            <div class="health-footline"><span id="health-device">DISPOSITIVO: --</span><span id="health-updated">AGGIORNAMENTO LIVE</span></div>
           </div>
 
           <!-- Hardware Telemetry: Mobile Battery / Energy Buffer (ram-val & ram-bar) -->
@@ -301,6 +317,10 @@
           <div class="transcript-box" id="transcript-box">
             <span class="transcript-prefix">// TRASCRIZIONE: </span>
             <span class="transcript-text" id="transcript-text">In attesa di comando vocale...</span>
+          </div>
+          <div class="stark-joke-console" aria-label="Modalità battute Stark">
+            <div><span class="joke-kicker">STARK HUMOR</span><strong id="joke-count">0 BATTUTE</strong></div>
+            <button class="hud-btn joke-btn" id="tell-joke-btn" type="button">ALTRA BATTUTA</button>
           </div>
         </div>
       </section>
@@ -476,6 +496,24 @@
           <input type="checkbox" id="setting-continuous-rec" class="hud-checkbox" checked>
         </div>
 
+        <!-- Stark personality -->
+        <div class="form-group personality-group">
+          <label for="setting-personality">Personalità JARVIS:</label>
+          <select id="setting-personality" class="hud-select">
+            <option value="serio">Serio e professionale</option>
+            <option value="sarcastico">Sarcastico</option>
+            <option value="elegante">Elegante</option>
+            <option value="stark">Stark mode — ironia massima</option>
+          </select>
+          <small class="form-hint">Influenza battute, saluti e risposte contestuali senza cambiare i comandi operativi.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="setting-custom-jokes">Battute personalizzate (una per riga):</label>
+          <textarea id="setting-custom-jokes" class="hud-input custom-jokes-input" rows="4" placeholder="Inserisci una battuta per riga..."></textarea>
+          <small class="form-hint">Verranno usate anche con “raccontami una battuta”.</small>
+        </div>
+
         <!-- Audio Testing -->
         <div class="test-controls">
           <button type="button" class="hud-btn" id="test-voice-btn">▶ Prova Voce Jarvis</button>
@@ -493,6 +531,7 @@
   <audio id="jarvis-audio-player" preload="auto" playsinline style="display: none;"></audio>
 
   <!-- Main JavaScript Application Logic -->
+  <script src="./webrtc.js?v=2026_webrtc_v1"></script>
   <script src="./app.js?v=2026_stark_v10"></script>
 </body>
 </html>

@@ -34,6 +34,9 @@
       charging: false,
       supported: false
     },
+    jokesUsed: 0,
+    lowBatteryJokeShown: false,
+    criticalBatteryAlertShown: false,
 
     // Speech Recognition & Watchdog
     recognition: null,
@@ -56,7 +59,10 @@
       elevenLabsVoice: '21m00Tcm4TlvDq8ikWAM',
       lang: 'it-IT',
       wakeWordEnabled: true,
-      continuousRec: true
+      continuousRec: true,
+      personality: 'stark',
+      customJokes: '',
+      repeatMode: false
     },
 
     // Real-Time Web Audio FFT Analyzer
@@ -66,6 +72,23 @@
     micStream: null,
     micSource: null,
     speechPulseValue: 0
+  };
+
+  // Guardrails di stabilità: una sessione lunga non deve accumulare DOM,
+  // richieste o timer senza controllo.
+  const RUNTIME_LIMITS = Object.freeze({
+    maxLogEntries: 120,
+    requestTimeoutMs: 45000
+  });
+  let activeChatController = null;
+  let activeChatRequest = null;
+
+  const scheduleFrame = (callback) => {
+    if (document.hidden) {
+      window.setTimeout(() => callback(performance.now()), 250);
+    } else {
+      requestAnimationFrame(callback);
+    }
   };
 
   // =========================================================================
@@ -97,6 +120,15 @@
     diagMicState: document.getElementById('diag-mic-state'),
     diagTtsState: document.getElementById('diag-tts-state'),
     diagWakelockState: document.getElementById('diag-wakelock-state'),
+    healthStatus: document.getElementById('health-status'),
+    healthCpu: document.getElementById('health-cpu'),
+    healthMemory: document.getElementById('health-memory'),
+    healthNetwork: document.getElementById('health-network'),
+    healthStorage: document.getElementById('health-storage'),
+    healthMemoryBar: document.getElementById('health-memory-bar'),
+    healthMemoryPct: document.getElementById('health-memory-pct'),
+    healthDevice: document.getElementById('health-device'),
+    healthUpdated: document.getElementById('health-updated'),
 
     // Center Stage & Reactor
     reactorTiltWrapper: document.getElementById('reactor-tilt-wrapper'),
@@ -114,6 +146,8 @@
     httpsAlertBanner: document.getElementById('https-alert-banner'),
     transcriptBox: document.getElementById('transcript-box'),
     transcriptText: document.getElementById('transcript-text'),
+    tellJokeBtn: document.getElementById('tell-joke-btn'),
+    jokeCount: document.getElementById('joke-count'),
 
     // Right Terminal Log
     messagesContainer: document.getElementById('messages-container'),
@@ -137,6 +171,8 @@
     settingLang: document.getElementById('setting-lang'),
     settingWakeWord: document.getElementById('setting-wake-word'),
     settingContinuousRec: document.getElementById('setting-continuous-rec'),
+    settingPersonality: document.getElementById('setting-personality'),
+    settingCustomJokes: document.getElementById('setting-custom-jokes'),
     testVoiceBtn: document.getElementById('test-voice-btn'),
     testFxBtn: document.getElementById('test-fx-btn'),
     btnTestSpeaker: document.getElementById('btn-test-speaker'),
@@ -150,6 +186,7 @@
     try { loadSettings(); } catch (e) { console.error('[JARVIS INIT] loadSettings error:', e); }
     try { initClock(); } catch (e) { console.error('[JARVIS INIT] initClock error:', e); }
     try { initTelemetry(); } catch (e) { console.error('[JARVIS INIT] initTelemetry error:', e); }
+    try { initDeviceHealth(); } catch (e) { console.error('[JARVIS INIT] initDeviceHealth error:', e); }
     try { initEngineToggle(); } catch (e) { console.error('[JARVIS INIT] initEngineToggle error:', e); }
     try { initParallax(); } catch (e) { console.error('[JARVIS INIT] initParallax error:', e); }
     try { initAudioContext(); } catch (e) { console.error('[JARVIS INIT] initAudioContext error:', e); }
@@ -178,6 +215,7 @@
   // =========================================================================
   function loadSettings() {
     try {
+      state.jokesUsed = Number(localStorage.getItem('jarvis_jokes_used') || 0);
       const stored = localStorage.getItem('jarvis_hud_settings');
       if (stored) {
         state.settings = Object.assign(state.settings, JSON.parse(stored));
@@ -199,6 +237,76 @@
       state.settings.llmProvider = 'fastapi';
     }
     syncSettingsForm();
+    updateJokeCounter();
+  }
+
+  function updateJokeCounter() {
+    if (DOM.jokeCount) DOM.jokeCount.textContent = `${state.jokesUsed} ${state.jokesUsed === 1 ? 'BATTUTA' : 'BATTUTE'}`;
+  }
+
+  function getStarkJoke(context = 'generale') {
+    const custom = String(state.settings.customJokes || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const personality = state.settings.personality || 'stark';
+    const jokes = [
+      'Tony Stark ha inventato un assistente capace di tutto. Poi ha chiesto anche di ricordargli dove ha lasciato le chiavi.',
+      'Gli Avengers hanno un piano per ogni emergenza. Per il Wi-Fi lento, invece, convocano direttamente Thor.',
+      'Iron Man non ha paura del buio: ha semplicemente installato un reattore Arc anche nella lampadina.',
+      'JARVIS, qual è la mia superpotenza? Premere “rimanda” sulla sveglia con precisione chirurgica.',
+      'Tony Stark entra in una stanza e il Bluetooth si connette da solo: anche i dispositivi vogliono essere parte della squadra.',
+      'Airomen non perde mai il telefono. Lo localizza con il sonar, poi lo trova sotto il cuscino.',
+      'Perché il computer va dal medico? Perché ha un virus e non trova l’antivirus.',
+      'Cosa dice una lampadina quando ha un’idea? Mi si è accesa una cosa.',
+      'Ho chiesto al Wi‑Fi se stava bene. Mi ha risposto: “Sono connesso, ma non mi sento visto”.',
+      'Perché il pomodoro arrossisce? Perché ha visto l’insalata nuda.',
+      'Qual è il colmo per un elettricista? Non avere corrente in famiglia.',
+      'JARVIS, fai una battuta sul caffè. Meglio di no: sarebbe troppo macchiata.',
+      'Ho provato a raccontare una battuta sul parcheggio, ma non c’era posto.',
+      'Cosa fa un chicco di caffè in palestra? Si allena per diventare espresso.',
+      'Il mio hard disk ha lasciato il computer: diceva che avevo troppi ricordi.',
+      'Perché il libro di matematica è triste? Ha troppi problemi.',
+      'Un byte entra in un bar. Il barista chiede: “Cosa prendi?”. Il byte risponde: “Un bit”.',
+      'Ho detto a Jarvis di essere spontaneo. Ha aperto un foglio Excel.',
+      'Qual è il colmo per un astronauta? Avere i piedi per terra.',
+      'Il Bluetooth e il Wi‑Fi hanno litigato: non erano più sulla stessa lunghezza d’onda.',
+      'Perché il telefono è andato in vacanza? Aveva bisogno di staccare la spina.',
+      'Un robot entra in un bar e ordina un cavo. Il barista: “USB?”. Il robot: “No, grazie, sono già carico”.',
+      'Ho comprato una memoria nuova. Ora ricordo anche perché l’ho comprata.',
+      'Qual è il colmo per un calendario? Avere i giorni contati.',
+      'La mia stampante è molto spirituale: crede sempre nella reincarnazione dei fogli.',
+      'Perché il mouse non racconta segreti? Ha sempre qualcuno che lo clicca.',
+      'Ho chiesto al frigorifero se aveva fame. Mi ha detto che era pieno.',
+      'Che cosa dice una presa all’altra? Restiamo in contatto.',
+      'Il computer è caduto in mare: ora ha un virus marino.',
+      'Perché il microfono è timido? Perché teme di essere amplificato.',
+      'Ho fatto una battuta sul caricabatterie, ma non ha fatto presa.',
+      'Un algoritmo entra in una stanza e dice: “Ho già visto questo scenario”.',
+      'Cosa fa un drone quando è triste? Prende quota per riflettere.',
+      'Il GPS ha perso la strada. Ora sta facendo finta di averlo fatto apposta.',
+      'Ho chiesto a una nuvola un consiglio. Mi ha detto di lasciar perdere e piovere sul problema.',
+      context === 'batteria' ? 'La batteria è bassa, signore. Persino Iron Man, prima di salvare il mondo, cerca un caricabatterie.' : '',
+      context === 'microfono' ? 'Microfono attivo. Può parlare, signore: prometto di non inoltrare la registrazione a Nick Fury.' : '',
+      context === 'webcam' ? 'Webcam attiva. Sorrida, signore: anche Tony Stark controllava sempre il suo lato migliore.' : '',
+      context === 'wakelock' ? 'Wake Lock attivo. Lo schermo resterà sveglio più a lungo di Tony Stark davanti a un nuovo progetto.' : '',
+      personality === 'sarcastico' ? 'Ho analizzato la situazione: lei ha chiesto una battuta a un’intelligenza artificiale. Audace, signore.' : '',
+      personality === 'elegante' ? 'Una battuta raffinata, signore: anche la tecnologia ha bisogno di un impeccabile senso dell’umorismo.' : '',
+      personality === 'serio' ? 'Rapporto umoristico: il livello di simpatia dei sistemi è operativo. Per fortuna, signore.' : ''
+    ].filter(Boolean);
+    const joke = custom.length && Math.random() < 0.35 ? custom[Math.floor(Math.random() * custom.length)] : jokes[Math.floor(Math.random() * jokes.length)];
+    state.jokesUsed += 1;
+    try { localStorage.setItem('jarvis_jokes_used', String(state.jokesUsed)); } catch (_) {}
+    updateJokeCounter();
+    return joke;
+  }
+
+  function tellStarkJoke(context = 'generale') {
+    const joke = getStarkJoke(context);
+    addLogEntry('JARVIS', joke, 'STARK-HUMOR');
+    DOM.statusBannerText.textContent = '⚡ STARK HUMOR // BATTUTA PRONTA';
+    document.body.classList.add('joke-mode');
+    window.setTimeout(() => document.body.classList.remove('joke-mode'), 1400);
+    playFx('joke');
+    speak(joke);
+    return joke;
   }
 
   function saveSettings() {
@@ -218,6 +326,8 @@
     state.settings.lang = DOM.settingLang.value;
     state.settings.wakeWordEnabled = DOM.settingWakeWord.checked;
     state.settings.continuousRec = DOM.settingContinuousRec.checked;
+    state.settings.personality = DOM.settingPersonality ? DOM.settingPersonality.value : 'stark';
+    state.settings.customJokes = DOM.settingCustomJokes ? DOM.settingCustomJokes.value.trim() : '';
 
     // Show/hide engine-specific settings
     const edgeGroup = document.getElementById('edge-tts-settings-group');
@@ -264,6 +374,8 @@
     DOM.settingLang.value = state.settings.lang;
     DOM.settingWakeWord.checked = state.settings.wakeWordEnabled;
     DOM.settingContinuousRec.checked = state.settings.continuousRec;
+    if (DOM.settingPersonality) DOM.settingPersonality.value = state.settings.personality || 'stark';
+    if (DOM.settingCustomJokes) DOM.settingCustomJokes.value = state.settings.customJokes || '';
 
     toggleProviderVisibility();
     toggleTtsVisibility();
@@ -331,6 +443,7 @@
   function initTelemetry() {
     let lastTime = performance.now();
     let frames = 0;
+    let pingInFlight = false;
 
     function calcFps(now) {
       frames++;
@@ -340,12 +453,13 @@
         frames = 0;
         lastTime = now;
       }
-      requestAnimationFrame(calcFps);
+      scheduleFrame(calcFps);
     }
-    requestAnimationFrame(calcFps);
+    scheduleFrame(calcFps);
 
     async function measurePing() {
-      if (!DOM.pingVal) return;
+      if (!DOM.pingVal || document.hidden || pingInFlight) return;
+      pingInFlight = true;
       const t0 = performance.now();
       try {
         const baseEndpoint = resolveBackendEndpoint();
@@ -358,11 +472,54 @@
         }
       } catch (e) {
         DOM.pingVal.textContent = 'OFFLINE';
+      } finally {
+        pingInFlight = false;
       }
     }
 
     measurePing();
     setInterval(measurePing, 10000);
+  }
+
+  // =========================================================================
+  // DEVICE HEALTH: browser-exposed mobile resource telemetry
+  // =========================================================================
+  function initDeviceHealth() {
+    if (!DOM.healthStatus) return;
+    const nav = navigator;
+    const connection = nav.connection || nav.mozConnection || nav.webkitConnection;
+    const formatBytes = (bytes) => bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
+    const update = async () => {
+      const memory = performance.memory;
+      const usedPct = memory && memory.jsHeapSizeLimit ? Math.min(100, Math.round(memory.usedJSHeapSize / memory.jsHeapSizeLimit * 100)) : null;
+      const net = connection ? (connection.effectiveType || connection.type || 'ONLINE').toUpperCase() : (navigator.onLine ? 'ONLINE' : 'OFFLINE');
+      DOM.healthCpu.textContent = nav.hardwareConcurrency ? `${nav.hardwareConcurrency}` : 'N/D';
+      DOM.healthMemory.textContent = memory ? `${formatBytes(memory.usedJSHeapSize)}` : (nav.deviceMemory ? `${nav.deviceMemory} GB DISP.` : 'N/D');
+      DOM.healthNetwork.textContent = net;
+      DOM.healthDevice.textContent = `DISPOSITIVO: ${/Android/i.test(nav.userAgent) ? 'ANDROID' : /iPhone|iPad/i.test(nav.userAgent) ? 'IOS' : 'DESKTOP'}`;
+      if (usedPct !== null) {
+        DOM.healthMemoryBar.style.width = `${usedPct}%`;
+        DOM.healthMemoryPct.textContent = `${usedPct}%`;
+      } else {
+        DOM.healthMemoryBar.style.width = '0%';
+        DOM.healthMemoryPct.textContent = 'N/D';
+      }
+      if (navigator.storage?.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          DOM.healthStorage.textContent = estimate.quota ? `${formatBytes(Math.max(0, (estimate.quota - (estimate.usage || 0))))}` : 'N/D';
+        } catch (_) { DOM.healthStorage.textContent = 'N/D'; }
+      } else DOM.healthStorage.textContent = 'N/D';
+      const warning = !navigator.onLine || (usedPct !== null && usedPct > 80) || (state.battery.level <= 0.2 && !state.battery.charging);
+      DOM.healthStatus.textContent = warning ? 'ATTENZIONE' : 'NOMINALE';
+      DOM.healthStatus.classList.toggle('health-warning', warning);
+      DOM.healthUpdated.textContent = `LIVE · ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    };
+    update();
+    window.setInterval(update, 5000);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    connection?.addEventListener?.('change', update);
   }
 
   // =========================================================================
@@ -588,6 +745,20 @@
       gain.connect(ctx.destination);
       osc.start(now);
       osc.stop(now + 0.2);
+    } else if (type === 'joke') {
+      // Piccolo arpeggio ascendente per la modalità umorismo.
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(523.25, now);
+      osc.frequency.setValueAtTime(659.25, now + 0.1);
+      osc.frequency.setValueAtTime(783.99, now + 0.2);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.38);
     }
   }
 
@@ -611,6 +782,7 @@
         if (notify) {
           playFx('action');
           addLog("Display WakeLock: ATTIVO");
+          window.setTimeout(() => tellStarkJoke('wakelock'), 180);
         }
 
         wakeLock.addEventListener('release', () => {
@@ -737,6 +909,35 @@
 
           // Update segmented LEDs
           updateBatterySegments(level);
+
+          if (level <= 5 && !battery.charging && !state.criticalBatteryAlertShown) {
+            state.criticalBatteryAlertShown = true;
+            state.lowBatteryJokeShown = true;
+            window.setTimeout(() => {
+              const alert = level === 0
+                ? 'Attenzione, signore: la batteria del telefono è scarica. Il reattore si è spento: colleghi il caricabatterie.'
+                : `Attenzione, signore: la batteria del telefono è quasi scarica, al ${level}%. Colleghi il caricabatterie prima che il reattore si spenga.`;
+              addLogEntry('JARVIS', alert, 'BATTERY-ALERT');
+              DOM.statusBannerText.textContent = '⚠️ BATTERIA QUASI SCARICA';
+              playFx('deactivate');
+              speak(alert);
+            }, 350);
+          } else if (level <= 10 && !battery.charging && !state.lowBatteryJokeShown) {
+            state.lowBatteryJokeShown = true;
+            window.setTimeout(() => {
+              const alert = `Signore, la batteria del telefono è quasi scarica: ${level}%. Anche Iron Man cercherebbe un caricabatterie adesso.`;
+              addLogEntry('JARVIS', alert, 'BATTERY-ALERT');
+              DOM.statusBannerText.textContent = '⚠️ BATTERIA BASSA';
+              speak(alert);
+            }, 350);
+          } else if (level <= 20 && !battery.charging && !state.lowBatteryJokeShown) {
+            state.lowBatteryJokeShown = true;
+            window.setTimeout(() => tellStarkJoke('batteria'), 350);
+          }
+          if (level > 25 || battery.charging) {
+            state.lowBatteryJokeShown = false;
+            state.criticalBatteryAlertShown = false;
+          }
         }
 
         updateBattery();
@@ -1015,16 +1216,17 @@
         console.warn('[JARVIS] Draw reactor error:', err);
       }
 
-      requestAnimationFrame(drawReactor);
+      scheduleFrame(drawReactor);
     }
 
-    requestAnimationFrame(drawReactor);
+    scheduleFrame(drawReactor);
   }
 
   // =========================================================================
   // WEB SPEECH RECOGNITION (STREAMING, ROBUST WAKE-WORD & SILENCE DEBOUNCE)
   // =========================================================================
   const WAKE_WORD_REGEX = /\b(jarvis|giarvis|iarvis|djarvis|ciarvis|charvis|jervis|gervis|yarvis|garvis|travis|ehi\s*jarvis|ehi\s*giarvis|hey\s*jarvis|hey\s*giarvis|ok\s*jarvis|ok\s*giarvis|ciao\s*jarvis|ciao\s*giarvis|ascolta\s*jarvis|ascolta\s*giarvis|stark)\b/i;
+  const AIROMEN_REGEX = /\b(?:airomen|airon\s*man|iron\s*man|ironman|uomo\s+di\s+ferro|tony\s+stark)\b/i;
 
   let speechSilenceTimer = null;
   let activeSpeechCandidate = '';
@@ -1262,8 +1464,23 @@
 
   let listeningWatchdogTimer = null;
   let currentAudioSource = null;
+  // Risolve sempre la riproduzione corrente quando l'utente interrompe Jarvis.
+  // Senza questo, la Promise TTS può rimanere pendente se 'ended' non arriva.
+  let currentPlaybackResolve = null;
+  let currentPlaybackTimer = null;
 
   function stopCurrentAudio() {
+    isSpeakingQueue = false;
+    currentSpeechQueue = [];
+    if (currentPlaybackTimer) {
+      clearTimeout(currentPlaybackTimer);
+      currentPlaybackTimer = null;
+    }
+    if (currentPlaybackResolve) {
+      const resolve = currentPlaybackResolve;
+      currentPlaybackResolve = null;
+      resolve();
+    }
     if (currentAudioSource) {
       try { currentAudioSource.stop(); } catch (e) {}
       currentAudioSource = null;
@@ -1333,6 +1550,7 @@
 
     DOM.statusBannerText.textContent = '🟢 IN ASCOLTO... PARLA ADESSO';
     DOM.transcriptText.textContent = 'Ti sto ascoltando... dì il tuo comando (es. "Che tempo fa?")';
+    window.setTimeout(() => tellStarkJoke('microfono'), 180);
 
     // Watchdog automatico: se l'utente non dice nulla entro 8 secondi, resetta a standby (evita blocco infinito)
     if (listeningWatchdogTimer) clearTimeout(listeningWatchdogTimer);
@@ -1409,6 +1627,15 @@
 
     // CASO 2: Modalità WAKE-WORD PASSIVA ("Jarvis", "Hey Jarvis"...)
     if (state.settings.wakeWordEnabled && !state.isListening) {
+      // Anche "Airomen" è una parola-trigger: basta pronunciarla per ottenere
+      // la battuta, senza dover prima dire "Jarvis".
+      if (AIROMEN_REGEX.test(rawText)) {
+        state.wakeWordDetected = true;
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+        stopCurrentAudio();
+        executeDirectSpeechCommand(rawText);
+        return;
+      }
       if (WAKE_WORD_REGEX.test(rawText)) {
         console.log('[JARVIS] Wake-Word rilevata nel flusso audio:', rawText);
         state.wakeWordDetected = true;
@@ -1635,16 +1862,24 @@
 
     unlockAudio();
 
-    const response = await fetch(ttsUrl, {
+    const controller = new AbortController();
+    const requestTimer = setTimeout(() => controller.abort(), 20000);
+    let response;
+    try {
+      response = await fetch(ttsUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         text: cleanText,
         voice: state.settings.edgeTtsVoice || '',
         rate: state.settings.edgeTtsRate || '+0%',
         pitch: state.settings.edgeTtsPitch || '+0Hz'
       })
-    });
+      });
+    } finally {
+      clearTimeout(requestTimer);
+    }
 
     if (!response.ok) {
       throw new Error(`Edge TTS Server returned ${response.status}`);
@@ -1661,6 +1896,15 @@
         }
         const audioBuffer = await state.audioCtx.decodeAudioData(arrayBuffer.slice(0));
         return new Promise((resolve) => {
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            if (currentPlaybackResolve === finish) currentPlaybackResolve = null;
+            if (currentPlaybackTimer) clearTimeout(currentPlaybackTimer);
+            currentPlaybackTimer = null;
+            resolve();
+          };
           const source = state.audioCtx.createBufferSource();
           source.buffer = audioBuffer;
           if (state.analyser) {
@@ -1668,8 +1912,13 @@
           }
           source.connect(state.audioCtx.destination);
           source.onended = () => {
-            resolve();
+            if (currentAudioSource === source) currentAudioSource = null;
+            finish();
           };
+          currentAudioSource = source;
+          currentPlaybackResolve = finish;
+          // Safety net: durata audio + 5 secondi, nel caso onended venga perso.
+          currentPlaybackTimer = setTimeout(finish, Math.max(10000, audioBuffer.duration * 1000 + 5000));
           source.start(0);
         });
       } catch (audioCtxErr) {
@@ -1684,22 +1933,48 @@
     player.src = audioUrl;
 
     return new Promise((resolve, reject) => {
-      player.onended = () => {
+      let settled = false;
+      const cleanup = () => {
+        if (currentPlaybackTimer) clearTimeout(currentPlaybackTimer);
+        currentPlaybackTimer = null;
+        if (currentPlaybackResolve === finish) currentPlaybackResolve = null;
         URL.revokeObjectURL(audioUrl);
+      };
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
         resolve();
       };
+      player.onended = () => {
+        finish();
+      };
       player.onerror = (err) => {
-        URL.revokeObjectURL(audioUrl);
+        if (settled) return;
+        settled = true;
+        cleanup();
         reject(err);
       };
-      player.play().catch(reject);
+      currentPlaybackResolve = finish;
+      currentPlaybackTimer = setTimeout(finish, 30000);
+      player.play().catch((err) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      });
     });
   }
 
   async function speakWithElevenLabs(text) {
     const voiceId = state.settings.elevenLabsVoice || '21m00Tcm4TlvDq8ikWAM';
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+    const controller = new AbortController();
+    const requestTimer = setTimeout(() => controller.abort(), 20000);
+    let response;
+    try {
+      response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Accept': 'audio/mpeg',
         'Content-Type': 'application/json',
@@ -1713,7 +1988,10 @@
           similarity_boost: 0.8
         }
       })
-    });
+      });
+    } finally {
+      clearTimeout(requestTimer);
+    }
 
     if (!response.ok) {
       throw new Error(`ElevenLabs API returned ${response.status}`);
@@ -1744,6 +2022,11 @@
   // FASTAPI MULTI-TOOL CLIENT & DISPATCHER
   // =========================================================================
   async function askJarvis(userText) {
+    // Evita che doppio tap, wake-word e input manuale aprano richieste concorrenti.
+    if (activeChatRequest) {
+      activeChatController?.abort();
+      try { await activeChatRequest; } catch (_) {}
+    }
     addLogEntry('USER', userText);
     const statusElem = document.getElementById('ai-status');
     if (statusElem) statusElem.innerText = "ELABORAZIONE // INTELLIGENCE";
@@ -1753,11 +2036,16 @@
     const route = '/chat';
     const serverUrl = `${baseEndpoint}${route}`;
 
-    try {
+    const controller = new AbortController();
+    activeChatController = controller;
+    const timeoutId = setTimeout(() => controller.abort(), RUNTIME_LIMITS.requestTimeoutMs);
+    const request = (async () => {
+      try {
       const response = await fetch(serverUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userText })
+        body: JSON.stringify({ message: userText }),
+        signal: controller.signal
       });
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1790,9 +2078,13 @@
 
       return reply;
 
-    } catch (err) {
+      } catch (err) {
+      // Una richiesta sostituita da un comando più recente non è un errore:
+      // non mostrare fallback né cambiare lo stato dell'interfaccia.
+      if (err.name === 'AbortError' && activeChatController !== controller) return;
       console.warn('[JARVIS] Errore connessione server:', err);
-      addLogEntry('JARVIS', `Connessione al Core Server fallita (${serverUrl}). Attivazione circuito di emergenza offline.`, 'OFFLINE-ALERT');
+      const reason = err.name === 'AbortError' ? 'Timeout del Core Server' : `Connessione al Core Server fallita (${serverUrl})`;
+      addLogEntry('JARVIS', `${reason}. Attivazione circuito di emergenza offline.`, 'OFFLINE-ALERT');
       if (statusElem) statusElem.innerText = "OFFLINE // AUTONOMO";
       updateUIStatus('ERROR');
 
@@ -1803,6 +2095,13 @@
         speak(fallback.speech);
         if (fallback.action !== 'chat') executeToolAction(fallback.action, fallback.params);
       }
+      }
+    })();
+    activeChatRequest = request;
+    try { return await request; } finally {
+      clearTimeout(timeoutId);
+      if (activeChatRequest === request) activeChatRequest = null;
+      if (activeChatController === controller) activeChatController = null;
     }
   }
 
@@ -1815,6 +2114,51 @@
   // =========================================================================
   async function processUserCommand(commandText) {
     if (!commandText || commandText.trim() === '') return;
+
+    const normalizedCommand = commandText.trim();
+    if (/smetti di ripetere|disattiva ripetizione|basta ripetere|modalità normale/i.test(normalizedCommand)) {
+      state.settings.repeatMode = false;
+      saveSettings();
+      addLogEntry('JARVIS', 'Modalità ripetizione disattivata, signore.', 'VOICE-MIRROR');
+      return speak('Modalità ripetizione disattivata, signore.');
+    }
+    if (/ripeti quello che dico|ripetizione attiva|fai il pappagallo|ripeti tutto/i.test(normalizedCommand)) {
+      state.settings.repeatMode = true;
+      saveSettings();
+      addLogEntry('JARVIS', 'Modalità ripetizione attivata.', 'VOICE-MIRROR');
+      return speak('Modalità ripetizione attivata. Dica pure, ripeterò tutto.');
+    }
+    if (state.settings.repeatMode) {
+      addLogEntry('JARVIS', normalizedCommand, 'VOICE-MIRROR');
+      return speak(normalizedCommand);
+    }
+
+    const jokeRequest = /(?:raccontami|dimmi|fammi|voglio)\s+(?:una\s+)?battuta|fammi\s+ridere|modalità\s+sorpresa|sorpresa/i.test(commandText);
+    if (jokeRequest) {
+      addLogEntry('USER', commandText);
+      return tellStarkJoke(/sorpresa/i.test(commandText) ? 'sorpresa' : 'generale');
+    }
+
+    // Easter egg: riferimenti ad "Airomen" / Iron Man producono una battuta
+    // locale e funzionano sia con il testo digitato sia con il riconoscimento vocale.
+    const airomenMatch = AIROMEN_REGEX.test(commandText);
+    if (airomenMatch) {
+      addLogEntry('USER', commandText);
+      return tellStarkJoke('airomen');
+    }
+
+    // Le chiamate AI sono sempre esplicite: evita che il modello confonda una
+    // normale chiamata dal telefono con una conversazione automatizzata.
+    if (/chiama tu|parla tu|parla con|con la tua voce|interagisci/i.test(commandText)) {
+      const directVoiceCall = executeLocalIntentEngine(commandText);
+      if (directVoiceCall && directVoiceCall.action === 'ai_call') {
+        addLogEntry('USER', commandText);
+        addLogEntry('JARVIS', directVoiceCall.speech, 'VOICE-CALL');
+        speak(directVoiceCall.speech);
+        executeToolAction('ai_call', directVoiceCall.params);
+        return;
+      }
+    }
 
     // Se l'utente ha configurato una chiave esterna per OpenAI o xAI Grok, la interroga direttamente
     if ((state.settings.llmProvider === 'openai' || state.settings.llmProvider === 'xai') && state.settings.apiKey) {
@@ -1932,6 +2276,15 @@ Azioni disponibili:
   function executeLocalIntentEngine(input) {
     const text = input.toLowerCase();
 
+    // Fallback locale anche se il comando arriva dal Core Server offline.
+    if (AIROMEN_REGEX.test(text)) {
+      return {
+        speech: 'Airomen è operativo: corazza brillante, ego al 100% e batteria sempre da controllare.',
+        action: 'chat',
+        params: {}
+      };
+    }
+
     // SPOTIFY: "riproduci Queen", "metti musica", "ascolta ac/dc su spotify"
     if (text.includes('spotify') || text.includes('musica') || text.includes('canzone') || text.includes('riproduci') || text.includes('suona') || text.includes('ascolta')) {
       let query = input
@@ -1987,10 +2340,11 @@ Azioni disponibili:
     if (text.includes('chiama') || text.includes('telefona') || text.includes('chiamata')) {
       const numbers = input.match(/\+?[0-9\s]{5,15}/);
       const phoneNum = numbers ? numbers[0].replace(/\s+/g, '') : '';
+      const aiCall = /parla tu|parla con|con la tua voce|con la mia voce|chiama tu|interagisci|conversazione/i.test(input);
       return {
-        speech: phoneNum ? `Avvio la composizione del numero ${phoneNum}, signore.` : 'Apro l\'interfaccia telefonica, signore.',
-        action: 'call',
-        params: { phone: phoneNum }
+        speech: aiCall ? `Avvio una chiamata vocale AI al numero ${phoneNum}, signore.` : (phoneNum ? `Avvio la composizione del numero ${phoneNum}, signore.` : 'Apro l\'interfaccia telefonica, signore.'),
+        action: aiCall ? 'ai_call' : 'call',
+        params: { phone: phoneNum, opening: 'Buongiorno, sono JARVIS, un assistente vocale basato su intelligenza artificiale. Posso parlare con lei?' }
       };
     }
 
@@ -2092,8 +2446,8 @@ Azioni disponibili:
       }
 
       case 'call': {
-        const phone = params.phone || '';
-        const telLink = `tel:${phone}`;
+        const phone = String(params.phone || '').replace(/[^0-9+*#]/g, '');
+        const telLink = phone ? `tel:${phone}` : 'tel:';
 
         addActionCard(
           'CHIAMATA TELEFONICA',
@@ -2104,8 +2458,32 @@ Azioni disponibili:
         );
 
         if (phone) {
-          window.location.href = telLink;
+          window.location.assign(telLink);
         }
+        break;
+      }
+
+      case 'ai_call': {
+        const phone = String(params.phone || '').replace(/[^0-9+]/g, '');
+        if (!phone) {
+          addLogEntry('JARVIS', 'Per una chiamata AI serve un numero di telefono completo.', 'VOICE-CALL');
+          speak('Mi serve il numero completo della persona da chiamare, signore.');
+          break;
+        }
+        const endpoint = `${resolveBackendEndpoint().replace('/chat', '')}/voice/call`;
+        fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: phone, opening: params.opening || undefined })
+        }).then(async (response) => {
+          if (!response.ok) throw new Error((await response.json()).detail || `HTTP ${response.status}`);
+          addLogEntry('JARVIS', `Chiamata AI avviata verso ${phone}.`, 'VOICE-CALL');
+          speak('La chiamata è stata avviata. Ora parlerò con la persona, signore.');
+        }).catch((error) => {
+          console.error('[JARVIS] AI voice call failed:', error);
+          addLogEntry('JARVIS', `Chiamata AI non disponibile: ${error.message}`, 'VOICE-CALL-ERROR');
+          speak('Non posso avviare la chiamata: verifichi la configurazione del servizio telefonico, signore.');
+        });
         break;
       }
 
@@ -2158,10 +2536,10 @@ Azioni disponibili:
   // Safe deep link launcher that prevents Android browser popups from getting trapped
   function tryTriggerDeepLink(appUri, fallbackUrl) {
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    
-    // On Android, directly pointing window.location to app URI triggers the native app intent
+    // Prova prima l'app nativa; il fallback web copre i browser che bloccano lo schema.
+    if (isMobile && appUri) window.location.href = appUri;
     setTimeout(() => {
-      window.open(fallbackUrl, '_blank');
+      if (fallbackUrl) window.open(fallbackUrl, '_blank');
     }, 400);
   }
 
@@ -2212,12 +2590,19 @@ Azioni disponibili:
 
   function formatContentWithCitations(rawText) {
     if (!rawText) return '';
+    const escapeHtml = (value) => String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
     // Format (Fonte: https://...) into clickable citation pills
     const urlRegex = /\(Fonte:\s*(https?:\/\/[^\s\)]+)\)/gi;
-    let formatted = rawText.replace(urlRegex, (match, url) => {
+    let formatted = escapeHtml(rawText).replace(urlRegex, (match, url) => {
       let hostname = '';
       try { hostname = new URL(url).hostname.replace('www.', ''); } catch (e) { hostname = 'fonte'; }
-      return `<a class="citation-pill" href="${url}" target="_blank" rel="noopener noreferrer">🌐 Fonte: ${hostname} ↗</a>`;
+      if (!/^https:\/\//i.test(url)) return escapeHtml(match);
+      return `<a class="citation-pill" href="${url}" target="_blank" rel="noopener noreferrer">🌐 Fonte: ${escapeHtml(hostname)} ↗</a>`;
     });
     // Format [1], [2] headers nicely
     formatted = formatted.replace(/\[(\d+)\]\s*([^:\n]+):/g, '<strong>[$1] $2:</strong>');
@@ -2270,22 +2655,31 @@ Azioni disponibili:
     entry.appendChild(content);
 
     DOM.messagesContainer.appendChild(entry);
+    // Mantiene il pannello fluido anche dopo ore di utilizzo.
+    while (DOM.messagesContainer.children.length > RUNTIME_LIMITS.maxLogEntries) {
+      DOM.messagesContainer.firstElementChild?.remove();
+    }
     DOM.messagesContainer.scrollTop = DOM.messagesContainer.scrollHeight;
   }
 
   function addActionCard(title, description, btnText, directLink, fallbackLink) {
     const card = document.createElement('div');
     card.className = 'action-card';
+    const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[char]);
+    const safeLink = /^https?:\/\//i.test(String(fallbackLink || directLink || ''))
+      ? String(fallbackLink || directLink) : '#';
 
     card.innerHTML = `
       <div class="action-card-header">
         <span>⚡</span>
-        <span>${title}</span>
+        <span>${safe(title)}</span>
       </div>
-      <div class="action-card-desc">${description}</div>
+      <div class="action-card-desc">${safe(description)}</div>
       <div class="action-card-footer">
-        <a class="action-card-btn" href="${fallbackLink || directLink}" target="_blank" rel="noopener noreferrer">
-          ${btnText} ↗
+        <a class="action-card-btn" href="${safe(safeLink)}" target="_blank" rel="noopener noreferrer">
+          ${safe(btnText)} ↗
         </a>
         <button class="action-card-btn secondary" type="button" title="Copia link negli appunti">
           📋 Copia
@@ -2297,13 +2691,16 @@ Azioni disponibili:
     if (copyBtn) {
       copyBtn.addEventListener('click', () => {
         triggerHaptic(20);
-        navigator.clipboard.writeText(fallbackLink || directLink);
+        navigator.clipboard?.writeText(safeLink);
         copyBtn.textContent = '✓ Copiato!';
         setTimeout(() => { copyBtn.textContent = '📋 Copia'; }, 2000);
       });
     }
 
     DOM.messagesContainer.appendChild(card);
+    while (DOM.messagesContainer.children.length > RUNTIME_LIMITS.maxLogEntries) {
+      DOM.messagesContainer.firstElementChild?.remove();
+    }
     DOM.messagesContainer.scrollTop = DOM.messagesContainer.scrollHeight;
   }
 
@@ -2323,6 +2720,13 @@ Azioni disponibili:
     if (DOM.statusBanner) {
       DOM.statusBanner.style.cursor = 'pointer';
       DOM.statusBanner.addEventListener('click', toggleVoiceMode);
+    }
+    if (DOM.tellJokeBtn) {
+      DOM.tellJokeBtn.addEventListener('click', () => {
+        unlockAudio();
+        triggerHaptic(30);
+        tellStarkJoke('sorpresa');
+      });
     }
 
     // Screen Wake Lock Toggle Button
@@ -2459,6 +2863,7 @@ Azioni disponibili:
         if (btnCapture) btnCapture.style.display = 'inline-block';
         btnToggle.innerHTML = '<span class="btn-prefix">⏹️</span> DISATTIVA';
         addLogEntry('SYSTEM', 'Sensori visivi online. Inquadra un oggetto e tocca ANALIZZA.');
+        window.setTimeout(() => tellStarkJoke('webcam'), 180);
       } catch (err) {
         console.error('[JARVIS VISION ERROR]', err);
         addLogEntry('ERROR', `Accesso telecamera negato o non supportato: ${err.message}`);

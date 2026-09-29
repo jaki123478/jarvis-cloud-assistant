@@ -386,6 +386,23 @@ body::before {
   color: var(--hud-text);
 }
 
+/* Device health panel */
+.device-health-card { background: linear-gradient(145deg, rgba(0, 240, 255, .08), rgba(3, 12, 24, .76)); }
+.health-status { color: var(--hud-green); }
+.health-status.health-warning { color: var(--hud-gold); text-shadow: 0 0 8px rgba(255,183,3,.6); }
+.health-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 10px 0 12px; }
+.health-metric { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px; border: 1px solid rgba(0,240,255,.16); background: rgba(0,0,0,.16); }
+.health-icon { display: grid; place-items: center; width: 30px; height: 24px; border: 1px solid rgba(0,240,255,.55); color: var(--hud-cyan); font: 700 .55rem var(--font-mono); letter-spacing: .5px; }
+.health-metric b { display: block; color: #fff; font: 700 .78rem var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-metric small { display: block; margin-top: 2px; color: var(--hud-text-muted); font: .52rem var(--font-mono); letter-spacing: .4px; }
+.health-progress-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; color: var(--hud-text-muted); font: .58rem var(--font-mono); }
+.health-progress-row strong { color: var(--hud-cyan); min-width: 27px; text-align: right; }
+.health-track { height: 5px; overflow: hidden; background: rgba(0,240,255,.1); border: 1px solid rgba(0,240,255,.22); }
+.health-track i { display: block; width: 0; height: 100%; background: var(--hud-cyan); box-shadow: 0 0 8px var(--hud-cyan); transition: width .4s ease, background .3s ease; }
+.health-footline { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; color: var(--hud-text-muted); font: .55rem var(--font-mono); letter-spacing: .3px; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+
 /* HUD Buttons */
 .hud-btn {
   background: rgba(0, 240, 255, 0.1);
@@ -1041,6 +1058,18 @@ body::before {
   gap: 4px;
 }
 
+.stark-joke-console { width: 100%; max-width: 440px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid rgba(255,183,3,.32); background: rgba(45,28,0,.28); }
+.stark-joke-console > div { display: flex; flex-direction: column; gap: 2px; }
+.joke-kicker { color: var(--hud-gold); font: .58rem var(--font-mono); letter-spacing: 1.5px; }
+.stark-joke-console strong { color: #fff; font: .68rem var(--font-mono); }
+.joke-btn { border-color: var(--hud-gold); color: var(--hud-gold); padding: 5px 9px; font-size: .62rem; }
+.joke-btn:hover { background: rgba(255,183,3,.2); box-shadow: var(--hud-gold-glow); }
+.custom-jokes-input { resize: vertical; min-height: 80px; line-height: 1.4; }
+.personality-group { padding: 10px; border: 1px solid rgba(255,183,3,.25); background: rgba(255,183,3,.05); }
+
+body.joke-mode .reactor-outer-wrapper { filter: hue-rotate(25deg) saturate(1.25); }
+body.joke-mode .status-banner { border-color: var(--hud-gold); box-shadow: var(--hud-gold-glow); }
+
 .transcript-prefix {
   color: var(--hud-text-muted);
   font-size: 0.7rem;
@@ -1546,10 +1575,23 @@ body::before {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 8px;
     padding: 2px 0;
     border-top: 1px dashed rgba(0, 240, 255, 0.15);
     border-bottom: 1px dashed rgba(0, 240, 255, 0.15);
   }
+
+  .telemetry-bar { width: 100%; justify-content: flex-start; gap: 6px; flex-wrap: wrap; }
+  .telemetry-item { font-size: .62rem; }
+  .engine-mode-btn { flex: 1 1 145px; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hud-clock { font-size: 1.05rem; }
+  .hud-date { font-size: .55rem; }
+  .header-right { gap: 6px; }
+  .wake-lock-btn { flex: 1; min-width: 0; padding-left: 7px; padding-right: 7px; }
+  .wake-lock-btn .btn-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .device-health-card .card-subtitle { letter-spacing: 1px; }
+  .health-footline { font-size: .5rem; }
 
   .hud-footer {
     flex-direction: column;
