@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#030A13">
+    android:background="#020617">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -16,7 +16,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="📋 CRONOLOGIA CONVERSAZIONI"
+            android:text="CRONOLOGIA CONVERSAZIONI"
             android:textColor="#00E5FF"
             android:textSize="16sp"
             android:fontFamily="monospace"

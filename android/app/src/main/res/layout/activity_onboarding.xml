@@ -4,8 +4,12 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
-    android:padding="32dp"
-    android:background="#030A13">
+    android:paddingStart="24dp"
+    android:paddingTop="28dp"
+    android:paddingEnd="24dp"
+    android:paddingBottom="24dp"
+    android:background="#020617"
+    android:fitsSystemWindows="true">
 
     <TextView
         android:id="@+id/onboardTitle"
@@ -14,7 +18,7 @@
         android:text="J.A.R.V.I.S."
         android:textColor="#00E5FF"
         android:textSize="36sp"
-        android:fontFamily="monospace"
+        android:fontFamily="sans"
         android:textStyle="bold"
         android:gravity="center"
         android:paddingBottom="8dp" />
@@ -26,7 +30,7 @@
         android:text="Just A Rather Very Intelligent System"
         android:textColor="#64DCF0"
         android:textSize="14sp"
-        android:fontFamily="monospace"
+        android:fontFamily="sans"
         android:gravity="center"
         android:paddingBottom="32dp" />
 
@@ -37,7 +41,7 @@
         android:text="Benvenuto, signore.\n\nSono l'intelligenza artificiale più avanzata al mondo, progettata per assisterLa in ogni ambito: ricerca web in tempo reale, comandi vocali, promemoria, controllo dispositivo, generazione immagini e molto altro.\n\nPrima di iniziare, ho bisogno di alcune informazioni."
         android:textColor="#9BDBEB"
         android:textSize="14sp"
-        android:fontFamily="monospace"
+        android:fontFamily="sans"
         android:lineSpacingExtra="4dp"
         android:gravity="center"
         android:paddingBottom="24dp" />
@@ -49,7 +53,7 @@
         android:hint="Come devo chiamarti?"
         android:textColor="@android:color/white"
         android:textColorHint="#507D8C"
-        android:fontFamily="monospace"
+        android:fontFamily="sans"
         android:singleLine="true"
         android:background="@drawable/input_border"
         android:paddingStart="16dp"
@@ -63,7 +67,7 @@
         android:hint="Numero telefono per promemoria (+39...)"
         android:textColor="@android:color/white"
         android:textColorHint="#507D8C"
-        android:fontFamily="monospace"
+        android:fontFamily="sans"
         android:singleLine="true"
         android:inputType="phone"
         android:background="@drawable/input_border"
@@ -79,13 +83,14 @@
         android:text="Per funzionare al meglio, J.A.R.V.I.S. necessita dell'accesso al microfono, alla fotocamera e alle notifiche."
         android:textColor="#9BDBEB"
         android:textSize="13sp"
-        android:fontFamily="monospace"
+        android:fontFamily="sans"
         android:gravity="center"
         android:paddingBottom="16dp"
         android:visibility="gone" />
 
     <Button
         android:id="@+id/onboardNext"
+        android:contentDescription="Continua la configurazione di J.A.R.V.I.S."
         android:layout_width="match_parent"
         android:layout_height="52dp"
         android:layout_marginTop="16dp"

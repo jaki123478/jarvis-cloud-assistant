@@ -96,7 +96,7 @@
                 android:layout_weight="1"
                 android:layout_marginEnd="12dp"
                 android:backgroundTint="#8B1A1A"
-                android:text="🔴 RIFIUTA"
+            android:text="RIFIUTA"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold"
                 android:textSize="14sp" />
@@ -108,7 +108,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="12dp"
                 android:backgroundTint="#008855"
-                android:text="🟢 RISPONDI"
+            android:text="RISPONDI"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold"
                 android:textSize="14sp" />
@@ -120,7 +120,7 @@
             android:layout_height="44dp"
             android:layout_marginBottom="16dp"
             android:backgroundTint="#152B3C"
-            android:text="⏳ RICHIAMA TRA 5 MINUTI"
+            android:text="RICHIAMA TRA 5 MINUTI"
             android:textColor="#FFB830"
             android:textSize="12sp"
             android:visibility="gone" />
@@ -219,7 +219,7 @@
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
                 android:backgroundTint="#102538"
-                android:text="🎤 MUTO"
+                android:text="MUTO"
                 android:textColor="#00E5FF"
                 android:textSize="12sp" />
 
@@ -230,7 +230,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="#102538"
-                android:text="🔊 VIVAVOCE"
+                android:text="VIVAVOCE"
                 android:textColor="#80B0D0"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -242,7 +242,7 @@
             android:layout_height="56dp"
             android:layout_marginBottom="20dp"
             android:backgroundTint="#D32F2F"
-            android:text="🔴 TERMINA CHIAMATA"
+            android:text="TERMINA CHIAMATA"
             android:textColor="#FFFFFF"
             android:textStyle="bold"
             android:textSize="15sp" />
