@@ -1,4 +1,5 @@
 services:
+  # Deploy marker: JARVIS web parity release 2026-09-29
   - type: web
     name: jarvis-cloud
     runtime: python
