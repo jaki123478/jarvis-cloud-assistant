@@ -174,9 +174,6 @@ public class MainActivity extends Activity {
         if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             perms.add(Manifest.permission.READ_CONTACTS);
         }
-        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            perms.add(Manifest.permission.POST_NOTIFICATIONS);
-        }
         if (!perms.isEmpty()) {
             requestPermissions(perms.toArray(new String[0]), 10);
         }
@@ -198,7 +195,6 @@ public class MainActivity extends Activity {
             });
         } catch (Exception ignored) {}
 
-        new Handler().postDelayed(this::offerNotificationAccess, 900);
     }
 
     private void setupXmlUi() {
@@ -337,7 +333,6 @@ public class MainActivity extends Activity {
         super.onStart();
         visible = true;
         new Handler().postDelayed(this::speakFirstGreetingIfNeeded, 650);
-        new Handler().postDelayed(this::offerNotificationAccess, 1100);
     }
 
     @Override
